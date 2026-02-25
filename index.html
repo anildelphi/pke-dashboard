@@ -19,6 +19,17 @@
     .container { max-width: 1600px; margin: 0 auto; padding: 24px 32px; }
     .mono { font-family: 'IBM Plex Mono', monospace; }
 
+    /* Tab bar */
+    .tab-bar { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .tab {
+      font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600;
+      padding: 10px 20px; cursor: pointer; color: #475569; background: none; border: none;
+      border-bottom: 2px solid transparent; transition: all 0.15s ease;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .tab:hover { color: #94a3b8; }
+    .tab.active { color: #e2e8f0; border-bottom-color: #60a5fa; }
+
     /* Header */
     .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 12px; }
     .header-left { display: flex; align-items: center; gap: 12px; }
@@ -145,6 +156,18 @@
     .card-quick .qk-done { color: #34d399; }
     .card-quick .qk-del { color: #ef4444; }
 
+    /* Trello columns (narrower for 10 lists) */
+    .kanban-trello .column { flex: 1 1 200px; min-width: 200px; max-width: 300px; }
+    .trello-labels { display: flex; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+    .trello-label { font-size: 9px; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+    .trello-due { font-size: 10px; color: #64748b; margin-top: 4px; }
+    .trello-due.overdue { color: #ef4444; }
+    .trello-desc {
+      font-size: 12px; color: #cbd5e1; line-height: 1.6; margin-bottom: 12px;
+      background: rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 12px;
+      border-left: 2px solid rgba(148,163,184,0.3); white-space: pre-wrap;
+    }
+
     /* Loading */
     .loading { text-align: center; padding: 80px 0; color: #334155; }
     .loading .brain { font-size: 32px; margin-bottom: 12px; animation: pulse 2s infinite; }
@@ -174,6 +197,8 @@
   <script>
     const SUPABASE_URL = "https://kzyubvtsvrwwvmagppho.supabase.co";
     const SUPABASE_KEY = "sb_publishable_k0UKHKu-84br_grFLjOfVQ_w9EjA2kg";
+
+    const TRELLO_BOARD_ID = "y70SyMiD";
 
     const STATUSES = [
       { key: "to_read", label: "To Read", icon: "◎", color: "#60a5fa" },
@@ -205,6 +230,7 @@
     };
 
     let state = {
+      activeTab: "readings",
       items: [],
       loading: true,
       error: null,
@@ -212,6 +238,11 @@
       viewMode: "kanban",
       searchQuery: "",
       expandedId: null,
+      trelloLists: [],
+      trelloCards: [],
+      trelloLoading: false,
+      trelloError: null,
+      trelloExpandedId: null,
     };
 
     function timeAgo(dateStr) {
@@ -266,6 +297,102 @@
       state.expandedId = null;
       render();
       try { await supaFetch("content_items?id=eq." + id, { method: "DELETE" }); } catch (e) { fetchItems(); }
+    }
+
+    async function trelloFetch(path, opts = {}) {
+      const url = "/api/trello?path=" + encodeURIComponent(path);
+      const res = await fetch(url, { method: opts.method || "GET", headers: { "Content-Type": "application/json" }, ...(opts.body ? { body: opts.body } : {}) });
+      if (!res.ok) throw new Error("Trello error: " + res.status);
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
+    async function fetchTrelloBoard() {
+      try {
+        state.trelloLoading = true;
+        render();
+        const lists = await trelloFetch("boards/" + TRELLO_BOARD_ID + "/lists?cards=all&card_fields=name,desc,labels,due,idList,pos");
+        state.trelloLists = lists.map(l => ({ id: l.id, name: l.name, pos: l.pos }));
+        state.trelloCards = lists.flatMap(l => (l.cards || []).map(c => ({ ...c, listId: c.idList })));
+        state.trelloError = null;
+      } catch (e) {
+        state.trelloError = e.message;
+      } finally {
+        state.trelloLoading = false;
+        render();
+      }
+    }
+
+    async function moveTrelloCard(cardId, listId) {
+      state.trelloCards = state.trelloCards.map(c => c.id === cardId ? { ...c, idList: listId, listId: listId } : c);
+      render();
+      try {
+        await trelloFetch("cards/" + cardId, { method: "PUT", body: JSON.stringify({ idList: listId }) });
+      } catch (e) { fetchTrelloBoard(); }
+    }
+
+    async function archiveTrelloCard(cardId) {
+      state.trelloCards = state.trelloCards.filter(c => c.id !== cardId);
+      state.trelloExpandedId = null;
+      render();
+      try {
+        await trelloFetch("cards/" + cardId, { method: "PUT", body: JSON.stringify({ closed: true }) });
+      } catch (e) { fetchTrelloBoard(); }
+    }
+
+    function trelloCardClick(id) {
+      if (justDragged) return;
+      state.trelloExpandedId = state.trelloExpandedId === id ? null : id;
+      render();
+    }
+
+    const TRELLO_LABEL_COLORS = {
+      green: "#34d399", yellow: "#fbbf24", orange: "#fb923c", red: "#ef4444",
+      purple: "#a78bfa", blue: "#60a5fa", sky: "#38bdf8", pink: "#f472b6",
+      lime: "#a3e635", black: "#475569",
+    };
+
+    function renderTrelloCard(card) {
+      const expanded = state.trelloExpandedId === card.id;
+      const labels = (card.labels || []).map(l =>
+        `<span class="trello-label" style="color:${TRELLO_LABEL_COLORS[l.color] || "#94a3b8"};background:${TRELLO_LABEL_COLORS[l.color] || "#94a3b8"}20">${esc(l.name || l.color)}</span>`
+      ).join("");
+
+      let dueHtml = "";
+      if (card.due) {
+        const overdue = new Date(card.due) < new Date();
+        dueHtml = `<div class="trello-due ${overdue ? "overdue" : ""} mono">${overdue ? "⚠ " : ""}${new Date(card.due).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>`;
+      }
+
+      let detail = "";
+      if (expanded) {
+        const moves = state.trelloLists.filter(l => l.id !== card.idList).map(l =>
+          `<button class="move-btn mono" style="color:#60a5fa;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.2);" onclick="event.stopPropagation();moveTrelloCard('${card.id}','${l.id}')">${esc(l.name)}</button>`
+        ).join("");
+
+        detail = `
+          <div class="card-detail" onclick="event.stopPropagation()">
+            ${card.desc ? `<div class="trello-desc">${esc(card.desc)}</div>` : ""}
+            <a class="card-read-link mono" href="https://trello.com/c/${card.id}" target="_blank" rel="noopener">↗ Open in Trello</a>
+            <div class="card-actions">
+              <span class="label mono">Move →</span>
+              ${moves}
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="card" data-id="${card.id}" data-source="trello" onclick="trelloCardClick('${card.id}')">
+          <div class="card-quick">
+            <button class="qk-done" title="Archive" onclick="event.stopPropagation();archiveTrelloCard('${card.id}')">✓</button>
+          </div>
+          <div class="card-content">
+            <div class="card-title ${expanded ? "expanded" : ""}">${esc(card.name)}</div>
+            ${labels ? `<div class="trello-labels">${labels}</div>` : ""}
+            ${dueHtml}
+          </div>
+          ${detail}
+        </div>`;
     }
 
     function getFiltered() {
@@ -380,49 +507,108 @@
           : filtered.map(renderCard).join("");
       }
 
-      document.getElementById("app").innerHTML = `
-        <div class="header">
-          <div class="header-left">
-            <span style="font-size:28px">🧠</span>
-            <div>
-              <h1 class="mono">PKE</h1>
-              <p class="sub mono">Personal Knowledge Engine</p>
+      const tabBar = `
+        <div class="tab-bar">
+          <button class="tab ${state.activeTab === "readings" ? "active" : ""}" onclick="switchTab('readings')">Readings</button>
+          <button class="tab ${state.activeTab === "todo" ? "active" : ""}" onclick="switchTab('todo')">To Do</button>
+        </div>`;
+
+      if (state.activeTab === "todo") {
+        let trelloContent;
+        if (state.trelloLoading && state.trelloCards.length === 0) {
+          trelloContent = `<div class="loading mono"><div class="brain">📋</div><div>loading trello board...</div></div>`;
+        } else {
+          trelloContent = `<div class="kanban kanban-trello">${state.trelloLists.map(list => {
+            const listCards = state.trelloCards.filter(c => c.idList === list.id);
+            return `
+              <div class="column" data-status="${list.id}" data-source="trello">
+                <div class="column-header" style="border-bottom:2px solid rgba(96,165,250,0.25)">
+                  <span class="label mono" style="color:#e2e8f0">${esc(list.name)}</span>
+                  <span class="count mono">${listCards.length}</span>
+                </div>
+                <div class="column-body">
+                  ${listCards.length === 0 ? '<div class="column-empty mono">drop here</div>' : listCards.map(renderTrelloCard).join("")}
+                </div>
+              </div>`;
+          }).join("")}</div>`;
+        }
+
+        document.getElementById("app").innerHTML = `
+          ${tabBar}
+          <div class="header">
+            <div class="header-left">
+              <span style="font-size:28px">📋</span>
+              <div>
+                <h1 class="mono">Master To Do</h1>
+                <p class="sub mono">Trello Board</p>
+              </div>
+            </div>
+            <div class="header-right">
+              <button class="btn" onclick="fetchTrelloBoard()">↻</button>
             </div>
           </div>
-          <div class="header-right">
-            <div class="search-wrap">
-              <span class="icon">⌕</span>
-              <input type="text" placeholder="search..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render()" />
-            </div>
-            <div class="view-toggle">
-              <button class="btn ${state.viewMode === "kanban" ? "active" : ""}" onclick="state.viewMode='kanban';render()">KANBAN</button>
-              <button class="btn ${state.viewMode === "list" ? "active" : ""}" onclick="state.viewMode='list';render()">LIST</button>
-            </div>
-            <button class="btn" onclick="fetchItems()">↻</button>
+          <div class="stats">
+            <div class="mono"><span class="stat-val" style="color:#e2e8f0">${state.trelloCards.length}</span><span class="stat-label">cards</span></div>
+            <div class="mono"><span class="stat-val" style="color:#60a5fa">${state.trelloLists.length}</span><span class="stat-label">lists</span></div>
           </div>
-        </div>
+          ${state.trelloError ? `<div class="error-bar mono">⚠ ${esc(state.trelloError)}<button onclick="fetchTrelloBoard()">retry</button></div>` : ""}
+          ${trelloContent}
+        `;
+      } else {
+        document.getElementById("app").innerHTML = `
+          ${tabBar}
+          <div class="header">
+            <div class="header-left">
+              <span style="font-size:28px">🧠</span>
+              <div>
+                <h1 class="mono">PKE</h1>
+                <p class="sub mono">Personal Knowledge Engine</p>
+              </div>
+            </div>
+            <div class="header-right">
+              <div class="search-wrap">
+                <span class="icon">⌕</span>
+                <input type="text" placeholder="search..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render()" />
+              </div>
+              <div class="view-toggle">
+                <button class="btn ${state.viewMode === "kanban" ? "active" : ""}" onclick="state.viewMode='kanban';render()">KANBAN</button>
+                <button class="btn ${state.viewMode === "list" ? "active" : ""}" onclick="state.viewMode='list';render()">LIST</button>
+              </div>
+              <button class="btn" onclick="fetchItems()">↻</button>
+            </div>
+          </div>
 
-        <div class="stats">
-          <div class="mono"><span class="stat-val" style="color:#e2e8f0">${filtered.length}</span><span class="stat-label">total</span></div>
-          <div class="mono"><span class="stat-val" style="color:#60a5fa">${thisWeek}</span><span class="stat-label">this week</span></div>
-          <div class="mono"><span class="stat-val" style="color:#fbbf24">${toRead}</span><span class="stat-label">to read</span></div>
-          ${sorted.length ? `<div class="stat-top">${sorted.map(([cat, count]) => {
-            const c = CATEGORIES.find(x => x.key === cat);
-            return `<span class="stat-tag mono" style="color:${c?.color};background:${c?.color || "#6b7280"}15">${cat} (${count})</span>`;
-          }).join("")}</div>` : ""}
-        </div>
+          <div class="stats">
+            <div class="mono"><span class="stat-val" style="color:#e2e8f0">${filtered.length}</span><span class="stat-label">total</span></div>
+            <div class="mono"><span class="stat-val" style="color:#60a5fa">${thisWeek}</span><span class="stat-label">this week</span></div>
+            <div class="mono"><span class="stat-val" style="color:#fbbf24">${toRead}</span><span class="stat-label">to read</span></div>
+            ${sorted.length ? `<div class="stat-top">${sorted.map(([cat, count]) => {
+              const c = CATEGORIES.find(x => x.key === cat);
+              return `<span class="stat-tag mono" style="color:${c?.color};background:${c?.color || "#6b7280"}15">${cat} (${count})</span>`;
+            }).join("")}</div>` : ""}
+          </div>
 
-        <div class="cat-filters">
-          ${CATEGORIES.filter(c => c.key === "all" || usedCats.has(c.key)).map(c => `
-            <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
-              ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key).length}</span>` : ""}
-            </button>
-          `).join("")}
-        </div>
+          <div class="cat-filters">
+            ${CATEGORIES.filter(c => c.key === "all" || usedCats.has(c.key)).map(c => `
+              <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
+                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key).length}</span>` : ""}
+              </button>
+            `).join("")}
+          </div>
 
-        ${state.error ? `<div class="error-bar mono">⚠ ${esc(state.error)}<button onclick="fetchItems()">retry</button></div>` : ""}
-        ${content}
-      `;
+          ${state.error ? `<div class="error-bar mono">⚠ ${esc(state.error)}<button onclick="fetchItems()">retry</button></div>` : ""}
+          ${content}
+        `;
+      }
+    }
+
+    function switchTab(tab) {
+      state.activeTab = tab;
+      if (tab === "todo" && state.trelloCards.length === 0 && !state.trelloLoading) {
+        fetchTrelloBoard();
+      } else {
+        render();
+      }
     }
 
     // Drag and drop — mouse events (not HTML5 DnD API)
@@ -440,7 +626,7 @@
       const card = e.target.closest(".card");
       if (!card) return;
       if (e.target.closest(".card-detail")) return;
-      drag = { id: card.dataset.id, startX: e.clientX, startY: e.clientY, card: card, clone: null, active: false };
+      drag = { id: card.dataset.id, source: card.dataset.source || "pke", startX: e.clientX, startY: e.clientY, card: card, clone: null, active: false };
     });
 
     document.addEventListener("mousemove", function(e) {
@@ -475,10 +661,14 @@
         var el = document.elementFromPoint(e.clientX, e.clientY);
         var col = el && el.closest(".column");
         if (col) {
-          var newStatus = col.dataset.status;
-          var item = state.items.find(function(i) { return i.id === drag.id; });
-          console.log("DROP:", drag.id, "->", newStatus);
-          if (item && item.status !== newStatus) updateStatus(drag.id, newStatus);
+          var target = col.dataset.status;
+          if (drag.source === "trello") {
+            var card = state.trelloCards.find(function(c) { return c.id === drag.id; });
+            if (card && card.idList !== target) moveTrelloCard(drag.id, target);
+          } else {
+            var item = state.items.find(function(i) { return i.id === drag.id; });
+            if (item && item.status !== target) updateStatus(drag.id, target);
+          }
         }
         justDragged = true;
         setTimeout(function() { justDragged = false; }, 0);
