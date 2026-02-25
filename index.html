@@ -331,7 +331,7 @@
         content = `<div class="kanban">${STATUSES.map(s => {
           const colItems = filtered.filter(i => i.status === s.key);
           return `
-            <div class="column" data-status="${s.key}" ondragover="onDragOver(event)" ondragenter="onDragEnter(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'${s.key}')">
+            <div class="column" data-status="${s.key}">
               <div class="column-header" style="border-bottom:2px solid ${s.color}25">
                 <span class="icon" style="color:${s.color}">${s.icon}</span>
                 <span class="label mono" style="color:#e2e8f0">${s.label}</span>
@@ -393,49 +393,64 @@
       `;
     }
 
-    // Drag and drop
+    // Drag and drop — document-level delegation so preventDefault()
+    // fires regardless of which nested child the cursor is over.
     let draggedId = null;
 
     function onDragStart(e, id) {
       draggedId = id;
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", id);
-      requestAnimationFrame(() => e.target.classList.add("dragging"));
+      requestAnimationFrame(() => {
+        const card = document.querySelector(`.card[data-id="${id}"]`);
+        if (card) card.classList.add("dragging");
+      });
     }
 
     function onDragEnd(e) {
+      if (draggedId) {
+        const card = document.querySelector(`.card[data-id="${draggedId}"]`);
+        if (card) card.classList.remove("dragging");
+      }
       draggedId = null;
-      e.target.classList.remove("dragging");
       document.querySelectorAll(".column.drag-over").forEach(c => c.classList.remove("drag-over"));
     }
 
-    function onDragOver(e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-    }
+    document.addEventListener("dragover", function(e) {
+      if (e.target.closest(".column")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }
+    });
 
-    function onDragEnter(e) {
-      e.preventDefault();
+    document.addEventListener("dragenter", function(e) {
       const col = e.target.closest(".column");
-      if (col) col.classList.add("drag-over");
-    }
+      if (col) {
+        e.preventDefault();
+        col.classList.add("drag-over");
+      }
+    });
 
-    function onDragLeave(e) {
+    document.addEventListener("dragleave", function(e) {
       const col = e.target.closest(".column");
-      if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over");
-    }
+      if (col && !col.contains(e.relatedTarget)) {
+        col.classList.remove("drag-over");
+      }
+    });
 
-    function onDrop(e, newStatus) {
-      e.preventDefault();
+    document.addEventListener("drop", function(e) {
       const col = e.target.closest(".column");
-      if (col) col.classList.remove("drag-over");
-      const id = e.dataTransfer.getData("text/plain") || draggedId;
+      if (!col) return;
+      e.preventDefault();
+      col.classList.remove("drag-over");
+      const newStatus = col.dataset.status;
+      const id = draggedId || e.dataTransfer.getData("text/plain");
       console.log("DROP:", id, "->", newStatus);
       if (!id) return;
       const item = state.items.find(i => i.id === id);
       if (item && item.status !== newStatus) updateStatus(id, newStatus);
       draggedId = null;
-    }
+    });
 
     // Init
     fetchItems();
