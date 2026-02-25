@@ -103,7 +103,17 @@
 
     /* Card expanded */
     .card-detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
-    .card-summary { font-size: 12px; color: #94a3b8; line-height: 1.6; margin-bottom: 12px; }
+    .card-summary {
+      font-size: 13px; color: #cbd5e1; line-height: 1.7; margin-bottom: 14px;
+      background: rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 12px;
+      border-left: 2px solid rgba(148,163,184,0.3);
+    }
+    .card-no-summary { font-size: 12px; color: #475569; font-style: italic; margin-bottom: 14px; }
+    .card-read-link {
+      display: inline-block; font-size: 11px; color: #60a5fa; margin-bottom: 12px;
+      text-decoration: none; font-family: 'IBM Plex Mono', monospace;
+    }
+    .card-read-link:hover { color: #93c5fd; text-decoration: underline; }
     .card-section-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
     .card-takeaway { font-size: 12px; color: #94a3b8; padding: 2px 0; line-height: 1.5; }
     .card-quote { font-size: 12px; color: #a78bfa; font-style: italic; padding: 4px 0 4px 10px; border-left: 2px solid rgba(167,139,250,0.3); line-height: 1.5; }
@@ -300,7 +310,8 @@
 
         detail = `
           <div class="card-detail" onclick="event.stopPropagation()">
-            ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : ""}
+            ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary available yet.</p>`}
+            ${item.url ? `<a class="card-read-link mono" href="${esc(item.url)}" target="_blank" rel="noopener">↗ Read original</a>` : ""}
             ${takeaways}
             ${quotes}
             <div class="card-actions">
