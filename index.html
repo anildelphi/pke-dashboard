@@ -295,7 +295,7 @@
       }
 
       return `
-        <div class="card" draggable="true" data-id="${item.id}" style="border-left:3px solid ${cat.color}" ondragstart="onDragStart(event,'${item.id}')" ondragend="onDragEnd(event)" onclick="state.expandedId=state.expandedId==='${item.id}'?null:'${item.id}';render()">
+        <div class="card" data-id="${item.id}" style="border-left:3px solid ${cat.color}" onclick="cardClick('${item.id}')">
           <div class="card-top">
             <span class="card-icon">${icon}</span>
             <div class="card-content">
@@ -393,63 +393,65 @@
       `;
     }
 
-    // Drag and drop — document-level delegation so preventDefault()
-    // fires regardless of which nested child the cursor is over.
-    let draggedId = null;
+    // Drag and drop — mouse events (not HTML5 DnD API)
+    let drag = null;
+    let justDragged = false;
 
-    function onDragStart(e, id) {
-      draggedId = id;
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", id);
-      requestAnimationFrame(() => {
-        const card = document.querySelector(`.card[data-id="${id}"]`);
-        if (card) card.classList.add("dragging");
-      });
+    function cardClick(id) {
+      if (justDragged) return;
+      state.expandedId = state.expandedId === id ? null : id;
+      render();
     }
 
-    function onDragEnd(e) {
-      if (draggedId) {
-        const card = document.querySelector(`.card[data-id="${draggedId}"]`);
-        if (card) card.classList.remove("dragging");
-      }
-      draggedId = null;
-      document.querySelectorAll(".column.drag-over").forEach(c => c.classList.remove("drag-over"));
-    }
-
-    document.addEventListener("dragover", function(e) {
-      if (e.target.closest(".column")) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      }
+    document.addEventListener("mousedown", function(e) {
+      if (e.button !== 0) return;
+      const card = e.target.closest(".card");
+      if (!card) return;
+      if (e.target.closest(".card-detail") || e.target.closest("a")) return;
+      drag = { id: card.dataset.id, startX: e.clientX, startY: e.clientY, card: card, clone: null, active: false };
     });
 
-    document.addEventListener("dragenter", function(e) {
-      const col = e.target.closest(".column");
-      if (col) {
-        e.preventDefault();
-        col.classList.add("drag-over");
+    document.addEventListener("mousemove", function(e) {
+      if (!drag) return;
+      if (!drag.active) {
+        if (Math.abs(e.clientX - drag.startX) < 5 && Math.abs(e.clientY - drag.startY) < 5) return;
+        drag.active = true;
+        drag.card.classList.add("dragging");
+        var rect = drag.card.getBoundingClientRect();
+        var clone = drag.card.cloneNode(true);
+        clone.style.cssText = "position:fixed;width:" + rect.width + "px;pointer-events:none;z-index:9999;opacity:0.85;transform:rotate(2deg) scale(1.02);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:14px 16px;";
+        document.body.appendChild(clone);
+        drag.clone = clone;
+        drag.offsetX = e.clientX - rect.left;
+        drag.offsetY = e.clientY - rect.top;
       }
-    });
-
-    document.addEventListener("dragleave", function(e) {
-      const col = e.target.closest(".column");
-      if (col && !col.contains(e.relatedTarget)) {
-        col.classList.remove("drag-over");
-      }
-    });
-
-    document.addEventListener("drop", function(e) {
-      const col = e.target.closest(".column");
-      if (!col) return;
       e.preventDefault();
-      col.classList.remove("drag-over");
-      const newStatus = col.dataset.status;
-      const id = draggedId || e.dataTransfer.getData("text/plain");
-      console.log("DROP:", id, "->", newStatus);
-      if (!id) return;
-      const item = state.items.find(i => i.id === id);
-      if (item && item.status !== newStatus) updateStatus(id, newStatus);
-      draggedId = null;
+      drag.clone.style.left = (e.clientX - drag.offsetX) + "px";
+      drag.clone.style.top = (e.clientY - drag.offsetY) + "px";
+      document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      var col = el && el.closest(".column");
+      if (col) col.classList.add("drag-over");
+    });
+
+    document.addEventListener("mouseup", function(e) {
+      if (!drag) return;
+      if (drag.active) {
+        if (drag.clone) drag.clone.remove();
+        drag.card.classList.remove("dragging");
+        document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
+        var el = document.elementFromPoint(e.clientX, e.clientY);
+        var col = el && el.closest(".column");
+        if (col) {
+          var newStatus = col.dataset.status;
+          var item = state.items.find(function(i) { return i.id === drag.id; });
+          console.log("DROP:", drag.id, "->", newStatus);
+          if (item && item.status !== newStatus) updateStatus(drag.id, newStatus);
+        }
+        justDragged = true;
+        setTimeout(function() { justDragged = false; }, 0);
+      }
+      drag = null;
     });
 
     // Init
