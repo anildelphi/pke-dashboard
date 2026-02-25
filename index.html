@@ -300,7 +300,7 @@
             <span class="card-icon">${icon}</span>
             <div class="card-content">
               <div class="card-title ${expanded ? "expanded" : ""}">
-                ${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(item.title)}</a>` : esc(item.title)}
+                ${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" draggable="false" onclick="event.stopPropagation()">${esc(item.title)}</a>` : esc(item.title)}
               </div>
               <div class="card-meta">
                 <span class="card-cat mono" style="color:${cat.color};background:${cat.color}18">${item.category}</span>
@@ -430,6 +430,7 @@
       const col = e.target.closest(".column");
       if (col) col.classList.remove("drag-over");
       const id = e.dataTransfer.getData("text/plain") || draggedId;
+      console.log("DROP:", id, "->", newStatus);
       if (!id) return;
       const item = state.items.find(i => i.id === id);
       if (item && item.status !== newStatus) updateStatus(id, newStatus);
