@@ -311,7 +311,7 @@
       try {
         state.trelloLoading = true;
         render();
-        const lists = await trelloFetch("boards/" + TRELLO_BOARD_ID + "/lists?cards=all&card_fields=name,desc,labels,due,idList,pos");
+        const lists = await trelloFetch("boards/" + TRELLO_BOARD_ID + "/lists?cards=open&card_fields=name,desc,labels,due,idList,pos");
         state.trelloLists = lists.map(l => ({ id: l.id, name: l.name, pos: l.pos }));
         state.trelloCards = lists.flatMap(l => (l.cards || []).map(c => ({ ...c, listId: c.idList })));
         state.trelloError = null;
