@@ -120,6 +120,27 @@
     }
     .delete-btn:hover { background: rgba(239,68,68,0.2); }
 
+    /* Quick actions on hover */
+    .card { position: relative; }
+    .card-quick {
+      position: absolute; top: 8px; right: 8px; display: flex; gap: 4px;
+      opacity: 0; transition: opacity 0.15s ease; pointer-events: none;
+    }
+    .card:hover .card-quick { opacity: 1; pointer-events: auto; }
+    .card-quick button {
+      width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s ease; padding: 0; line-height: 1;
+    }
+    .card-quick .qk-done {
+      background: rgba(52,211,153,0.1); color: #34d399; border-color: rgba(52,211,153,0.25);
+    }
+    .card-quick .qk-done:hover { background: rgba(52,211,153,0.3); }
+    .card-quick .qk-del {
+      background: rgba(239,68,68,0.1); color: #ef4444; border-color: rgba(239,68,68,0.25);
+    }
+    .card-quick .qk-del:hover { background: rgba(239,68,68,0.3); }
+
     /* Loading */
     .loading { text-align: center; padding: 80px 0; color: #334155; }
     .loading .brain { font-size: 32px; margin-bottom: 12px; animation: pulse 2s infinite; }
@@ -298,6 +319,10 @@
 
       return `
         <div class="card" data-id="${item.id}" style="border-left:3px solid ${cat.color}" onclick="cardClick('${item.id}')">
+          <div class="card-quick">
+            <button class="qk-done" title="Digested" onclick="event.stopPropagation();updateStatus('${item.id}','digested')">✓</button>
+            <button class="qk-del" title="Delete" onclick="event.stopPropagation();deleteItem('${item.id}')">✕</button>
+          </div>
           <div class="card-top">
             <span class="card-icon">${icon}</span>
             <div class="card-content">
