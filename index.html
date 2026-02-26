@@ -243,6 +243,12 @@
       trelloLoading: false,
       trelloError: null,
       trelloExpandedId: null,
+      podcastItems: [],
+      podcastLoading: false,
+      podcastError: null,
+      podcastExpandedId: null,
+      podcastProcessing: false,
+      podcastInputUrl: "",
     };
 
     function timeAgo(dateStr) {
@@ -401,6 +407,204 @@
         </div>`;
     }
 
+    // ── Podcast functions ──
+
+    async function fetchPodcasts() {
+      try {
+        state.podcastLoading = true;
+        render();
+        const data = await supaFetch("podcasts?select=*&order=created_at.desc&limit=100");
+        state.podcastItems = data || [];
+        state.podcastError = null;
+      } catch (e) {
+        state.podcastError = e.message;
+      } finally {
+        state.podcastLoading = false;
+        render();
+      }
+      const processing = state.podcastItems.filter(p => p.status === "processing");
+      if (processing.length > 0) {
+        setTimeout(function() { if (state.activeTab === "podcasts") fetchPodcasts(); }, 5000);
+      }
+    }
+
+    async function submitPodcastUrl() {
+      const url = state.podcastInputUrl.trim();
+      if (!url) return;
+
+      const isYouTube = /youtube\.com\/watch|youtu\.be\//.test(url);
+      const isSpotify = /open\.spotify\.com\/episode/.test(url);
+      if (!isYouTube && !isSpotify) {
+        state.podcastError = "Please enter a YouTube or Spotify episode URL";
+        render();
+        return;
+      }
+
+      state.podcastProcessing = true;
+      state.podcastError = null;
+      state.podcastInputUrl = "";
+      render();
+
+      let podcastId;
+      try {
+        const inserted = await supaFetch("podcasts", {
+          method: "POST",
+          body: JSON.stringify({ url: url, title: "Processing...", status: "processing" }),
+          headers: { Prefer: "return=representation" },
+        });
+        podcastId = inserted[0].id;
+        state.podcastItems.unshift(inserted[0]);
+        render();
+      } catch (e) {
+        state.podcastError = "Failed to create entry: " + e.message;
+        state.podcastProcessing = false;
+        render();
+        return;
+      }
+
+      try {
+        let youtubeUrl = url;
+        let resolvedTitle = null;
+
+        if (isSpotify) {
+          const searchRes = await fetch("/api/podcast-search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ spotifyUrl: url }),
+          });
+          if (!searchRes.ok) { const err = await searchRes.json(); throw new Error(err.error || "Failed to find YouTube match"); }
+          const searchData = await searchRes.json();
+          youtubeUrl = searchData.youtubeUrl;
+          resolvedTitle = searchData.spotifyTitle;
+        }
+
+        const transcriptRes = await fetch("/api/podcast-transcript", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ youtubeUrl: youtubeUrl }),
+        });
+        if (!transcriptRes.ok) { const err = await transcriptRes.json(); throw new Error(err.error || "Failed to extract transcript"); }
+        const transcriptData = await transcriptRes.json();
+        const title = resolvedTitle || transcriptData.title;
+
+        await supaFetch("podcasts?id=eq." + podcastId, {
+          method: "PATCH",
+          body: JSON.stringify({ title: title, channel: transcriptData.channel, duration: transcriptData.duration, youtube_url: youtubeUrl, transcript: transcriptData.transcript }),
+          headers: { Prefer: "return=representation" },
+        });
+        state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, title, channel: transcriptData.channel, duration: transcriptData.duration, youtube_url: youtubeUrl } : p);
+        render();
+
+        const analyzeRes = await fetch("/api/podcast-analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript: transcriptData.transcript, title: title }),
+        });
+        if (!analyzeRes.ok) { const err = await analyzeRes.json(); throw new Error(err.error || "Analysis failed"); }
+        const analysis = await analyzeRes.json();
+
+        await supaFetch("podcasts?id=eq." + podcastId, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: analysis.people, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways }),
+          headers: { Prefer: "return=representation" },
+        });
+        state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "ready", ...analysis } : p);
+      } catch (e) {
+        try { await supaFetch("podcasts?id=eq." + podcastId, { method: "PATCH", body: JSON.stringify({ status: "error", error_message: e.message }) }); } catch (_) {}
+        state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "error", error_message: e.message } : p);
+        state.podcastError = e.message;
+      } finally {
+        state.podcastProcessing = false;
+        render();
+      }
+    }
+
+    async function deletePodcast(id) {
+      state.podcastItems = state.podcastItems.filter(p => p.id !== id);
+      state.podcastExpandedId = null;
+      render();
+      try { await supaFetch("podcasts?id=eq." + id, { method: "DELETE" }); } catch (e) { fetchPodcasts(); }
+    }
+
+    async function retryPodcast(id) {
+      const podcast = state.podcastItems.find(p => p.id === id);
+      if (!podcast) return;
+      state.podcastInputUrl = podcast.url;
+      await deletePodcast(id);
+      submitPodcastUrl();
+    }
+
+    function podcastCardClick(id) {
+      if (justDragged) return;
+      state.podcastExpandedId = state.podcastExpandedId === id ? null : id;
+      render();
+    }
+
+    function renderPodcastCard(podcast) {
+      const expanded = state.podcastExpandedId === podcast.id;
+      const isProcessing = podcast.status === "processing";
+      const isError = podcast.status === "error";
+
+      let statusBadge = "";
+      if (isProcessing) statusBadge = '<span class="card-cat mono" style="color:#fbbf24;background:rgba(251,191,36,0.15)">processing...</span>';
+      else if (isError) statusBadge = '<span class="card-cat mono" style="color:#ef4444;background:rgba(239,68,68,0.15)">error</span>';
+
+      const topics = (podcast.topics || []).slice(0, 4);
+      const topicTags = topics.map(t => `<span class="card-tag mono">#${esc(t)}</span>`).join("");
+
+      let detail = "";
+      if (expanded && podcast.status === "ready") {
+        const quotesHtml = (podcast.quotes || []).map(q => `<div class="card-quote">"${esc(q)}"</div>`).join("");
+        const peopleHtml = (podcast.people || []).map(p => `<div class="card-takeaway"><strong>${esc(p.name)}</strong> — ${esc(p.context)}</div>`).join("");
+        const refsHtml = (podcast.content_references || []).map(r => `<div class="card-takeaway">📖 ${esc(r.title)}${r.author ? " — " + esc(r.author) : ""} <span style="color:#475569">(${esc(r.type)})</span></div>`).join("");
+        const takeawaysHtml = (podcast.takeaways || []).map(t => `<div class="card-takeaway">→ ${esc(t)}</div>`).join("");
+
+        detail = `
+          <div class="card-detail" onclick="event.stopPropagation()">
+            ${podcast.summary ? `<p class="card-summary">${esc(podcast.summary)}</p>` : ""}
+            ${podcast.youtube_url ? `<a class="card-read-link mono" href="${esc(podcast.youtube_url)}" target="_blank" rel="noopener">↗ Watch on YouTube</a>` : ""}
+            ${podcast.url !== podcast.youtube_url && podcast.url ? `<a class="card-read-link mono" href="${esc(podcast.url)}" target="_blank" rel="noopener" style="margin-left:12px">↗ Original link</a>` : ""}
+            ${quotesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Key Quotes</div>${quotesHtml}</div>` : ""}
+            ${peopleHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">People Mentioned</div>${peopleHtml}</div>` : ""}
+            ${refsHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">References</div>${refsHtml}</div>` : ""}
+            ${takeawaysHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Takeaways</div>${takeawaysHtml}</div>` : ""}
+            <div class="card-actions">
+              <button class="delete-btn mono" onclick="event.stopPropagation();deletePodcast('${podcast.id}')">✕ Delete</button>
+            </div>
+          </div>`;
+      } else if (expanded && isError) {
+        detail = `
+          <div class="card-detail" onclick="event.stopPropagation()">
+            <p class="card-no-summary">Error: ${esc(podcast.error_message)}</p>
+            <div class="card-actions">
+              <button class="move-btn mono" style="color:#60a5fa;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.2);" onclick="event.stopPropagation();retryPodcast('${podcast.id}')">↻ Retry</button>
+              <button class="delete-btn mono" onclick="event.stopPropagation();deletePodcast('${podcast.id}')">✕ Delete</button>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="card" style="border-left:3px solid ${isError ? "#ef4444" : isProcessing ? "#fbbf24" : "#a78bfa"}" onclick="podcastCardClick('${podcast.id}')">
+          <div class="card-quick">
+            <button class="qk-del" title="Delete" onclick="event.stopPropagation();deletePodcast('${podcast.id}')">✕</button>
+          </div>
+          <div class="card-top">
+            <span class="card-icon">🎙️</span>
+            <div class="card-content">
+              <div class="card-title ${expanded ? "expanded" : ""}">${esc(podcast.title)}</div>
+              <div class="card-meta">
+                ${statusBadge}
+                ${podcast.channel ? `<span class="card-cat mono" style="color:#a78bfa;background:rgba(167,139,250,0.15)">${esc(podcast.channel)}</span>` : ""}
+                ${podcast.duration ? `<span class="card-time mono">${esc(podcast.duration)}</span>` : ""}
+                <span class="card-time mono">${timeAgo(podcast.created_at)}</span>
+              </div>
+              ${topicTags ? `<div class="card-tags">${topicTags}</div>` : ""}
+            </div>
+          </div>
+          ${detail}
+        </div>`;
+    }
+
     function getFiltered() {
       return state.items.filter(item => {
         const catOk = state.activeCategory === "all" || item.category === state.activeCategory;
@@ -517,6 +721,7 @@
         <div class="tab-bar">
           <button class="tab ${state.activeTab === "readings" ? "active" : ""}" onclick="switchTab('readings')">Readings</button>
           <button class="tab ${state.activeTab === "todo" ? "active" : ""}" onclick="switchTab('todo')">To Do</button>
+          <button class="tab ${state.activeTab === "podcasts" ? "active" : ""}" onclick="switchTab('podcasts')">Podcasts</button>
         </div>`;
 
       if (state.activeTab === "todo") {
@@ -559,6 +764,55 @@
           </div>
           ${state.trelloError ? `<div class="error-bar mono">⚠ ${esc(state.trelloError)}<button onclick="fetchTrelloBoard()">retry</button></div>` : ""}
           ${trelloContent}
+        `;
+      } else if (state.activeTab === "podcasts") {
+        let podcastContent;
+        if (state.podcastLoading && state.podcastItems.length === 0) {
+          podcastContent = '<div class="loading mono"><div class="brain">🎙️</div><div>loading podcasts...</div></div>';
+        } else if (state.podcastItems.length === 0) {
+          podcastContent = '<div style="text-align:center;padding:48px 0;color:#334155;font-size:12px" class="mono">no podcasts yet — paste a URL above to get started</div>';
+        } else {
+          podcastContent = state.podcastItems.map(renderPodcastCard).join("");
+        }
+
+        const readyCount = state.podcastItems.filter(p => p.status === "ready").length;
+        const processingCount = state.podcastItems.filter(p => p.status === "processing").length;
+
+        document.getElementById("app").innerHTML = `
+          ${tabBar}
+          <div class="header">
+            <div class="header-left">
+              <span style="font-size:28px">🎙️</span>
+              <div>
+                <h1 class="mono">Podcasts</h1>
+                <p class="sub mono">AI-Analyzed Episodes</p>
+              </div>
+            </div>
+            <div class="header-right">
+              <button class="btn" onclick="fetchPodcasts()">↻</button>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="mono"><span class="stat-val" style="color:#e2e8f0">${state.podcastItems.length}</span><span class="stat-label">total</span></div>
+            <div class="mono"><span class="stat-val" style="color:#34d399">${readyCount}</span><span class="stat-label">analyzed</span></div>
+            ${processingCount ? `<div class="mono"><span class="stat-val" style="color:#fbbf24">${processingCount}</span><span class="stat-label">processing</span></div>` : ""}
+          </div>
+
+          <div style="margin-bottom:20px;display:flex;gap:8px;">
+            <input type="text" class="mono" placeholder="Paste YouTube or Spotify episode URL..."
+              value="${esc(state.podcastInputUrl)}"
+              oninput="state.podcastInputUrl=this.value"
+              onkeydown="if(event.key==='Enter')submitPodcastUrl()"
+              style="flex:1;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:13px;outline:none;font-family:'IBM Plex Mono',monospace;"
+            />
+            <button class="btn" onclick="submitPodcastUrl()" ${state.podcastProcessing ? "disabled" : ""}
+              style="padding:10px 20px;${state.podcastProcessing ? "opacity:0.5;cursor:wait;" : ""}"
+            >${state.podcastProcessing ? "⏳ Processing..." : "+ Analyze"}</button>
+          </div>
+
+          ${state.podcastError ? `<div class="error-bar mono">⚠ ${esc(state.podcastError)}<button onclick="state.podcastError=null;render()">dismiss</button></div>` : ""}
+          ${podcastContent}
         `;
       } else {
         document.getElementById("app").innerHTML = `
@@ -612,6 +866,8 @@
       state.activeTab = tab;
       if (tab === "todo" && state.trelloCards.length === 0 && !state.trelloLoading) {
         fetchTrelloBoard();
+      } else if (tab === "podcasts" && state.podcastItems.length === 0 && !state.podcastLoading) {
+        fetchPodcasts();
       } else {
         render();
       }
