@@ -5,44 +5,46 @@ export default async function handler(req, res) {
   if (!youtubeUrl) return res.status(400).json({ error: "Missing youtubeUrl" });
 
   try {
-    // 1. Fetch YouTube page
-    const pageRes = await fetch(youtubeUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-    if (!pageRes.ok) throw new Error("Failed to fetch YouTube page: " + pageRes.status);
-    const html = await pageRes.text();
+    // 1. Extract video ID from URL
+    const videoId = extractVideoId(youtubeUrl);
+    if (!videoId) throw new Error("Could not extract video ID from URL");
 
-    // 2. Extract ytInitialPlayerResponse
-    const prMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*<\/script/s);
-    if (!prMatch) throw new Error("Could not parse YouTube page — video may be unavailable");
-    let playerResponse;
-    try {
-      playerResponse = JSON.parse(prMatch[1]);
-    } catch {
-      throw new Error("Could not parse YouTube player data");
-    }
+    // 2. Use YouTube innertube API to get player data (much more reliable than page scraping)
+    const playerRes = await fetch("https://www.youtube.com/youtubei/v1/player", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        videoId: videoId,
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: "2.20250220.01.00",
+            hl: "en",
+          },
+        },
+      }),
+    });
+    if (!playerRes.ok) throw new Error("YouTube API error: " + playerRes.status);
+    const playerData = await playerRes.json();
 
     // 3. Extract metadata
-    const details = playerResponse.videoDetails || {};
+    const details = playerData.videoDetails || {};
     const title = details.title || "Unknown";
     const channel = details.author || "";
     const lengthSec = parseInt(details.lengthSeconds, 10);
     const duration = lengthSec
-      ? (lengthSec >= 3600
-          ? Math.floor(lengthSec / 3600) + "h " + Math.floor((lengthSec % 3600) / 60) + "m"
-          : Math.floor(lengthSec / 60) + "m")
+      ? lengthSec >= 3600
+        ? Math.floor(lengthSec / 3600) + "h " + Math.floor((lengthSec % 3600) / 60) + "m"
+        : Math.floor(lengthSec / 60) + "m"
       : "";
 
     // 4. Find caption tracks
-    const captions = playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    const captions = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!captions || captions.length === 0) {
       throw new Error("No captions available for this video");
     }
 
-    // Prefer English, fall back to first
+    // Prefer English, fall back to first available
     const track =
       captions.find((t) => t.languageCode === "en") ||
       captions.find((t) => t.languageCode?.startsWith("en")) ||
@@ -53,7 +55,7 @@ export default async function handler(req, res) {
     if (!capRes.ok) throw new Error("Failed to fetch captions");
     const capXml = await capRes.text();
 
-    // 6. Parse <text> elements
+    // 6. Parse <text> elements into plain text
     const texts = [...capXml.matchAll(/<text[^>]*>(.*?)<\/text>/gs)].map((m) =>
       m[1]
         .replace(/&amp;/g, "&")
@@ -71,4 +73,18 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+}
+
+function extractVideoId(url) {
+  const patterns = [
+    /[?&]v=([a-zA-Z0-9_-]{11})/,
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    /embed\/([a-zA-Z0-9_-]{11})/,
+    /shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
 }
