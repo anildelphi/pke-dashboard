@@ -75,7 +75,6 @@
     }
     .cat-btn.active { border-color: currentColor; }
     .cat-btn .count { margin-left: 4px; opacity: 0.5; }
-    .cat-btn.drag-over { outline: 2px dashed rgba(255,255,255,0.3); outline-offset: 2px; background: rgba(255,255,255,0.08) !important; }
 
     /* Kanban */
     .kanban { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; }
@@ -285,18 +284,6 @@
         state.loading = false;
         render();
       }
-    }
-
-    async function updateCategory(id, newCategory) {
-      state.items = state.items.map(i => i.id === id ? { ...i, category: newCategory } : i);
-      render();
-      try {
-        await supaFetch("content_items?id=eq." + id, {
-          method: "PATCH",
-          body: JSON.stringify({ category: newCategory }),
-          headers: { Prefer: "return=representation" },
-        });
-      } catch (e) { fetchItems(); }
     }
 
     async function updateStatus(id, newStatus) {
@@ -863,7 +850,7 @@
 
           <div class="cat-filters">
             ${CATEGORIES.filter(c => c.key === "all" || usedCats.has(c.key)).map(c => `
-              <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" ${c.key !== "all" ? `data-category="${c.key}"` : ""} style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
+              <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
                 ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key).length}</span>` : ""}
               </button>
             `).join("")}
@@ -922,12 +909,9 @@
       drag.clone.style.left = (e.clientX - drag.offsetX) + "px";
       drag.clone.style.top = (e.clientY - drag.offsetY) + "px";
       document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
-      document.querySelectorAll(".cat-btn.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
       var el = document.elementFromPoint(e.clientX, e.clientY);
       var col = el && el.closest(".column");
-      var catBtn = el && el.closest(".cat-btn[data-category]");
       if (col) col.classList.add("drag-over");
-      if (catBtn) catBtn.classList.add("drag-over");
     });
 
     document.addEventListener("mouseup", function(e) {
@@ -936,15 +920,9 @@
         if (drag.clone) drag.clone.remove();
         drag.card.classList.remove("dragging");
         document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
-        document.querySelectorAll(".cat-btn.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
         var el = document.elementFromPoint(e.clientX, e.clientY);
         var col = el && el.closest(".column");
-        var catBtn = el && el.closest(".cat-btn[data-category]");
-        if (catBtn && drag.source !== "trello") {
-          var newCategory = catBtn.dataset.category;
-          var item = state.items.find(function(i) { return i.id === drag.id; });
-          if (item && item.category !== newCategory) updateCategory(drag.id, newCategory);
-        } else if (col) {
+        if (col) {
           var target = col.dataset.status;
           if (drag.source === "trello") {
             var card = state.trelloCards.find(function(c) { return c.id === drag.id; });
