@@ -207,13 +207,17 @@
       { key: "archived", label: "Archived", icon: "▪", color: "#6b7280" },
     ];
 
-    const TO_TRY_STATUSES = [
-      { key: "try_personal_ai", label: "Personal AI", icon: "◉", color: "#a78bfa" },
-      { key: "try_openclaw", label: "OpenClaw", icon: "◉", color: "#fb923c" },
-      { key: "try_delphi_ai", label: "Delphi AI", icon: "◉", color: "#60a5fa" },
-      { key: "try_other", label: "Other", icon: "◉", color: "#fbbf24" },
+    const TO_TRY_COLUMNS = [
+      { key: "personal_ai", label: "Personal AI", icon: "◉", color: "#a78bfa", tag: "try:personal_ai" },
+      { key: "openclaw", label: "OpenClaw", icon: "◉", color: "#fb923c", tag: "try:openclaw" },
+      { key: "delphi_ai", label: "Delphi AI", icon: "◉", color: "#60a5fa", tag: "try:delphi_ai" },
+      { key: "other", label: "Other", icon: "◉", color: "#fbbf24", tag: "try:other" },
     ];
-    const TO_TRY_KEYS = new Set(TO_TRY_STATUSES.map(s => s.key).concat(["to_try"]));
+    const TRY_TAG_PREFIX = "try:";
+    function getToTryColumnKey(item) {
+      const t = (item.tags || []).find(t => t.startsWith(TRY_TAG_PREFIX));
+      return t ? t.slice(TRY_TAG_PREFIX.length) : "other";
+    }
 
     const CATEGORIES = [
       { key: "all", label: "All", color: "#94a3b8" },
@@ -617,7 +621,7 @@
 
     function getFiltered() {
       return state.items.filter(item => {
-        if (TO_TRY_KEYS.has(item.status)) return false;
+        if (item.status === "to_try") return false;
         const catOk = state.activeCategory === "all" || item.category === state.activeCategory;
         const q = state.searchQuery.toLowerCase();
         const searchOk = !q || (item.title || "").toLowerCase().includes(q)
@@ -629,7 +633,7 @@
 
     function getFilteredToTry() {
       return state.items.filter(item => {
-        if (!TO_TRY_KEYS.has(item.status)) return false;
+        if (item.status !== "to_try") return false;
         const catOk = state.toTryCategory === "all" || item.category === state.toTryCategory;
         const q = state.toTrySearchQuery.toLowerCase();
         const searchOk = !q || (item.title || "").toLowerCase().includes(q)
@@ -639,9 +643,20 @@
       });
     }
 
-    function getToTryColumn(item) {
-      if (item.status !== "to_try") return item.status;
-      return "try_other";
+    async function moveToTryColumn(id, columnKey) {
+      const item = state.items.find(i => i.id === id);
+      if (!item) return;
+      const newTags = (item.tags || []).filter(t => !t.startsWith(TRY_TAG_PREFIX));
+      if (columnKey !== "other") newTags.push(TRY_TAG_PREFIX + columnKey);
+      state.items = state.items.map(i => i.id === id ? { ...i, tags: newTags } : i);
+      render();
+      try {
+        await supaFetch("content_items?id=eq." + id, {
+          method: "PATCH",
+          body: JSON.stringify({ tags: newTags }),
+          headers: { Prefer: "return=representation" },
+        });
+      } catch (e) { fetchItems(); }
     }
 
     function esc(s) {
@@ -720,12 +735,13 @@
       const cat = CATEGORIES.find(c => c.key === item.category) || CATEGORIES[CATEGORIES.length - 1];
       const expanded = state.toTryExpandedId === item.id;
       const icon = SOURCE_ICONS[item.source_type] || "📄";
-      const tags = (item.tags || []).filter(t => t !== "test" && t !== "setup");
+      const curCol = getToTryColumnKey(item);
+      const tags = (item.tags || []).filter(t => t !== "test" && t !== "setup" && !t.startsWith(TRY_TAG_PREFIX));
 
       let detail = "";
       if (expanded) {
-        const moves = TO_TRY_STATUSES.filter(s => s.key !== getToTryColumn(item)).map(s =>
-          `<button class="move-btn mono" style="color:${s.color};background:${s.color}15;border:1px solid ${s.color}30;" onclick="event.stopPropagation();updateStatus('${item.id}','${s.key}')">${s.icon} ${s.label}</button>`
+        const moves = TO_TRY_COLUMNS.filter(s => s.key !== curCol).map(s =>
+          `<button class="move-btn mono" style="color:${s.color};background:${s.color}15;border:1px solid ${s.color}30;" onclick="event.stopPropagation();moveToTryColumn('${item.id}','${s.key}')">${s.icon} ${s.label}</button>`
         ).join("");
 
         let takeaways = "";
@@ -819,14 +835,14 @@
 
       if (state.activeTab === "totry") {
         const tryFiltered = getFilteredToTry();
-        const tryUsedCats = new Set(state.items.filter(i => TO_TRY_KEYS.has(i.status)).map(i => i.category));
+        const tryUsedCats = new Set(state.items.filter(i => i.status === "to_try").map(i => i.category));
 
         let tryContent;
         if (state.loading && state.items.length === 0) {
           tryContent = `<div class="loading mono"><div class="brain">◉</div><div>loading items...</div></div>`;
         } else {
-          tryContent = `<div class="kanban">${TO_TRY_STATUSES.map(s => {
-            const colItems = tryFiltered.filter(i => getToTryColumn(i) === s.key);
+          tryContent = `<div class="kanban">${TO_TRY_COLUMNS.map(s => {
+            const colItems = tryFiltered.filter(i => getToTryColumnKey(i) === s.key);
             return `
               <div class="column" data-status="${s.key}" data-source="totry">
                 <div class="column-header" style="border-bottom:2px solid ${s.color}25">
@@ -862,8 +878,8 @@
 
           <div class="stats">
             <div class="mono"><span class="stat-val" style="color:#e2e8f0">${tryFiltered.length}</span><span class="stat-label">total</span></div>
-            ${TO_TRY_STATUSES.map(s => {
-              const c = tryFiltered.filter(i => getToTryColumn(i) === s.key).length;
+            ${TO_TRY_COLUMNS.map(s => {
+              const c = tryFiltered.filter(i => getToTryColumnKey(i) === s.key).length;
               return c ? `<div class="mono"><span class="stat-val" style="color:${s.color}">${c}</span><span class="stat-label">${s.label.toLowerCase()}</span></div>` : "";
             }).join("")}
           </div>
@@ -871,7 +887,7 @@
           <div class="cat-filters">
             ${CATEGORIES.filter(c => c.key === "all" || tryUsedCats.has(c.key)).map(c => `
               <button class="cat-btn ${state.toTryCategory === c.key ? "active" : ""}" style="${state.toTryCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.toTryCategory='${c.key}';render()">
-                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => TO_TRY_KEYS.has(i.status) && i.category === c.key).length}</span>` : ""}
+                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.status === "to_try" && i.category === c.key).length}</span>` : ""}
               </button>
             `).join("")}
           </div>
@@ -1100,7 +1116,7 @@
             if (card && card.idList !== target) moveTrelloCard(drag.id, target);
           } else if (drag.source === "totry") {
             var item = state.items.find(function(i) { return i.id === drag.id; });
-            if (item && getToTryColumn(item) !== target) updateStatus(drag.id, target);
+            if (item && getToTryColumnKey(item) !== target) moveToTryColumn(drag.id, target);
           } else {
             var item = state.items.find(function(i) { return i.id === drag.id; });
             if (item && item.status !== target) updateStatus(drag.id, target);
