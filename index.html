@@ -1038,12 +1038,19 @@
       render();
     }
 
+    // Prevent native browser drag (links/images inside cards steal mouse events)
+    document.addEventListener("dragstart", function(e) {
+      if (drag) { e.preventDefault(); return; }
+      var card = e.target.closest(".card");
+      if (card) e.preventDefault();
+    });
+
     document.addEventListener("mousedown", function(e) {
       if (e.button !== 0) return;
       const card = e.target.closest(".card");
       if (!card) return;
       if (e.target.closest(".card-detail")) return;
-      drag = { id: card.dataset.id, source: card.dataset.source || "pke", startX: e.clientX, startY: e.clientY, card: card, clone: null, active: false };
+      drag = { id: card.dataset.id, source: card.dataset.source || "pke", startX: e.clientX, startY: e.clientY, card: card, clone: null, active: false, targetStatus: null };
     });
 
     document.addEventListener("mousemove", function(e) {
@@ -1064,21 +1071,30 @@
       drag.clone.style.left = (e.clientX - drag.offsetX) + "px";
       drag.clone.style.top = (e.clientY - drag.offsetY) + "px";
       document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
+      // Hide clone so elementFromPoint reliably finds the column underneath
+      drag.clone.style.visibility = "hidden";
       var el = document.elementFromPoint(e.clientX, e.clientY);
+      drag.clone.style.visibility = "";
       var col = el && el.closest(".column");
-      if (col) col.classList.add("drag-over");
+      if (col) {
+        col.classList.add("drag-over");
+        drag.targetStatus = col.dataset.status;
+      }
     });
 
     document.addEventListener("mouseup", function(e) {
       if (!drag) return;
       if (drag.active) {
-        if (drag.clone) drag.clone.remove();
+        if (drag.clone) {
+          drag.clone.style.visibility = "hidden";
+          drag.clone.remove();
+        }
         drag.card.classList.remove("dragging");
         document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
         var el = document.elementFromPoint(e.clientX, e.clientY);
         var col = el && el.closest(".column");
-        if (col) {
-          var target = col.dataset.status;
+        var target = col ? col.dataset.status : drag.targetStatus;
+        if (target) {
           if (drag.source === "trello") {
             var card = state.trelloCards.find(function(c) { return c.id === drag.id; });
             if (card && card.idList !== target) moveTrelloCard(drag.id, target);
