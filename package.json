@@ -1,0 +1,7 @@
+{
+  "name": "pke-dashboard",
+  "private": true,
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12"
+  }
+}

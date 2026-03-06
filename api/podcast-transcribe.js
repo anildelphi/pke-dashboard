@@ -1,3 +1,5 @@
+import ytdl from "@distube/ytdl-core";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
@@ -38,43 +40,22 @@ export default async function handler(req, res) {
     // Mode 1: Submit new transcription
     if (!youtubeUrl) return res.status(400).json({ error: "Missing youtubeUrl or transcriptId" });
 
-    const videoId = extractVideoId(youtubeUrl);
-    if (!videoId) throw new Error("Could not extract video ID from URL");
-
-    // Use ANDROID client to get direct (non-cipher) audio stream URLs
-    const playerRes = await fetch("https://www.youtube.com/youtubei/v1/player", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        videoId,
-        context: {
-          client: {
-            clientName: "ANDROID",
-            clientVersion: "19.09.37",
-            androidSdkVersion: 30,
-            hl: "en",
-          },
-        },
-      }),
-    });
-    if (!playerRes.ok) throw new Error("YouTube API error: " + playerRes.status);
-    const playerData = await playerRes.json();
-
-    // Extract audio stream URL from adaptive formats
-    const formats = playerData.streamingData?.adaptiveFormats || [];
-    const audioFormats = formats
-      .filter((f) => f.mimeType && f.mimeType.startsWith("audio/") && f.url)
+    // Use ytdl-core to extract audio stream URL (handles YouTube's signature decryption)
+    const info = await ytdl.getInfo(youtubeUrl);
+    const audioFormats = ytdl
+      .filterFormats(info.formats, "audioonly")
+      .filter((f) => f.url)
       .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
     if (audioFormats.length === 0) {
       throw new Error("Could not access audio stream for this video. It may be restricted or unavailable.");
     }
 
-    // Prefer audio/mp4 (AAC) for best compatibility, fall back to any
+    // Prefer mp4/aac for best compatibility with AssemblyAI
     const audioFormat =
-      audioFormats.find((f) => f.mimeType.startsWith("audio/mp4")) || audioFormats[0];
+      audioFormats.find((f) => f.mimeType && f.mimeType.startsWith("audio/mp4")) || audioFormats[0];
 
-    // Submit to AssemblyAI
+    // Submit audio URL to AssemblyAI for transcription
     const aaiRes = await fetch("https://api.assemblyai.com/v2/transcript", {
       method: "POST",
       headers: {
@@ -96,18 +77,4 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-}
-
-function extractVideoId(url) {
-  const patterns = [
-    /[?&]v=([a-zA-Z0-9_-]{11})/,
-    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
-    /embed\/([a-zA-Z0-9_-]{11})/,
-    /shorts\/([a-zA-Z0-9_-]{11})/,
-  ];
-  for (const p of patterns) {
-    const m = url.match(p);
-    if (m) return m[1];
-  }
-  return null;
 }
