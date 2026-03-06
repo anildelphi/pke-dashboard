@@ -14,12 +14,13 @@ export default async function handler(req, res) {
 
   const prompt = `Analyze this podcast transcript and return a JSON object with exactly these fields:
 
-- "summary": A detailed multi-paragraph summary (3-5 paragraphs) covering the key discussion points, arguments, and conclusions
-- "quotes": Array of 5-10 important verbatim quotes from the transcript (use the exact wording from the transcript)
-- "people": Array of objects {"name": "...", "context": "..."} for notable people, companies, or organizations mentioned, with brief context about why they were discussed
-- "content_references": Array of objects {"title": "...", "type": "book|paper|article|podcast|video|tool", "author": "..."} for books, papers, tools, or content referenced in the discussion
+- "summary": A detailed multi-paragraph summary (3-5 paragraphs) covering the key discussion points, arguments, and conclusions. Write it as a narrative overview.
+- "quotes": Array of 5-10 important verbatim quotes from the transcript (use the exact wording). Choose quotes that capture key insights, surprising claims, or memorable moments.
+- "people": Array of objects {"name": "...", "bio": "...", "context": "...", "type": "person"} for notable individuals mentioned. "bio" is a 1-2 sentence description of who they are (role, what they're known for). "context" explains why they were discussed in this episode.
+- "companies": Array of objects {"name": "...", "bio": "...", "context": "...", "type": "company"} for notable companies, organizations, or institutions mentioned. "bio" describes what the entity does. "context" explains why it was discussed.
+- "content_references": Array of objects {"title": "...", "type": "book|paper|article|podcast|video|tool|movie|show|game|product", "author": "...", "description": "..."} for books, papers, tools, movies, products, or any content referenced. "description" is a 1-sentence summary of what it is and why it was referenced.
 - "topics": Array of 5-10 key topic or theme strings
-- "takeaways": Array of 5-10 actionable takeaway strings — things the listener should remember or act on
+- "takeaways": Array of 5-10 actionable takeaway strings — key insights or things the listener should remember or act on
 
 Podcast title: ${title}
 ${truncated ? "(Note: transcript was truncated to first ~60,000 characters)" : ""}
@@ -39,7 +40,7 @@ Return ONLY valid JSON. No markdown code fences, no explanation, just the JSON o
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: "user", content: prompt }],
       }),
     });

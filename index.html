@@ -437,10 +437,55 @@
         state.podcastLoading = false;
         render();
       }
-      const processing = state.podcastItems.filter(p => p.status === "processing");
+      const processing = state.podcastItems.filter(p => p.status === "processing" || p.status === "transcribing");
       if (processing.length > 0) {
         setTimeout(function() { if (state.activeTab === "podcasts") fetchPodcasts(); }, 5000);
       }
+    }
+
+    // Poll AssemblyAI transcription until complete
+    async function pollTranscription(transcriptId) {
+      const maxPolls = 120; // 10 minutes at 5s intervals
+      for (let i = 0; i < maxPolls; i++) {
+        const pollRes = await fetch("/api/podcast-transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcriptId }),
+        });
+        if (!pollRes.ok) throw new Error("Failed to check transcription status");
+        const pollData = await pollRes.json();
+        if (pollData.status === "completed") return pollData.transcript;
+        if (pollData.status === "error") throw new Error("Transcription failed: " + (pollData.error || "Unknown error"));
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      throw new Error("Transcription timed out after 10 minutes");
+    }
+
+    // Run Claude analysis and save results
+    async function runAnalysis(podcastId, transcript, title) {
+      state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "analyzing" } : p);
+      render();
+
+      const analyzeRes = await fetch("/api/podcast-analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript, title }),
+      });
+      if (!analyzeRes.ok) { const err = await analyzeRes.json(); throw new Error(err.error || "Analysis failed"); }
+      const analysis = await analyzeRes.json();
+
+      // Combine people and companies into the people array with type field
+      const allPeople = [
+        ...(analysis.people || []).map(p => ({ ...p, type: p.type || "person" })),
+        ...(analysis.companies || []).map(c => ({ ...c, type: c.type || "company" })),
+      ];
+
+      await supaFetch("podcasts?id=eq." + podcastId, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: allPeople, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways }),
+        headers: { Prefer: "return=representation" },
+      });
+      state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: allPeople, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways } : p);
     }
 
     async function submitPodcastUrl() {
@@ -493,6 +538,7 @@
           resolvedTitle = searchData.spotifyTitle;
         }
 
+        // Step 1: Try YouTube captions (fast, free)
         const transcriptRes = await fetch("/api/podcast-transcript", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -502,28 +548,50 @@
         const transcriptData = await transcriptRes.json();
         const title = resolvedTitle || transcriptData.title;
 
+        // Save metadata immediately
         await supaFetch("podcasts?id=eq." + podcastId, {
           method: "PATCH",
-          body: JSON.stringify({ title: title, channel: transcriptData.channel, duration: transcriptData.duration, youtube_url: youtubeUrl, transcript: transcriptData.transcript }),
+          body: JSON.stringify({ title: title, channel: transcriptData.channel, duration: transcriptData.duration, youtube_url: youtubeUrl }),
           headers: { Prefer: "return=representation" },
         });
         state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, title, channel: transcriptData.channel, duration: transcriptData.duration, youtube_url: youtubeUrl } : p);
         render();
 
-        const analyzeRes = await fetch("/api/podcast-analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: transcriptData.transcript, title: title }),
-        });
-        if (!analyzeRes.ok) { const err = await analyzeRes.json(); throw new Error(err.error || "Analysis failed"); }
-        const analysis = await analyzeRes.json();
+        let transcript;
 
+        if (transcriptData.noCaptions) {
+          // Step 2: Fall back to AssemblyAI transcription
+          state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "transcribing" } : p);
+          await supaFetch("podcasts?id=eq." + podcastId, {
+            method: "PATCH",
+            body: JSON.stringify({ status: "transcribing" }),
+            headers: { Prefer: "return=representation" },
+          });
+          render();
+
+          const aaiRes = await fetch("/api/podcast-transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ youtubeUrl }),
+          });
+          if (!aaiRes.ok) { const err = await aaiRes.json(); throw new Error(err.error || "Failed to start transcription"); }
+          const aaiData = await aaiRes.json();
+
+          // Poll until transcript is ready
+          transcript = await pollTranscription(aaiData.transcriptId);
+        } else {
+          transcript = transcriptData.transcript;
+        }
+
+        // Save transcript
         await supaFetch("podcasts?id=eq." + podcastId, {
           method: "PATCH",
-          body: JSON.stringify({ status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: analysis.people, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways }),
+          body: JSON.stringify({ transcript }),
           headers: { Prefer: "return=representation" },
         });
-        state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "ready", ...analysis } : p);
+
+        // Step 3: Run Claude analysis
+        await runAnalysis(podcastId, transcript, title);
       } catch (e) {
         try { await supaFetch("podcasts?id=eq." + podcastId, { method: "PATCH", body: JSON.stringify({ status: "error", error_message: e.message }) }); } catch (_) {}
         state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "error", error_message: e.message } : p);
@@ -558,10 +626,15 @@
     function renderPodcastCard(podcast) {
       const expanded = state.podcastExpandedId === podcast.id;
       const isProcessing = podcast.status === "processing";
+      const isTranscribing = podcast.status === "transcribing";
+      const isAnalyzing = podcast.status === "analyzing";
       const isError = podcast.status === "error";
+      const isWorking = isProcessing || isTranscribing || isAnalyzing;
 
       let statusBadge = "";
       if (isProcessing) statusBadge = '<span class="card-cat mono" style="color:#fbbf24;background:rgba(251,191,36,0.15)">processing...</span>';
+      else if (isTranscribing) statusBadge = '<span class="card-cat mono" style="color:#38bdf8;background:rgba(56,189,248,0.15)">transcribing audio...</span>';
+      else if (isAnalyzing) statusBadge = '<span class="card-cat mono" style="color:#c084fc;background:rgba(192,132,252,0.15)">analyzing...</span>';
       else if (isError) statusBadge = '<span class="card-cat mono" style="color:#ef4444;background:rgba(239,68,68,0.15)">error</span>';
 
       const topics = (podcast.topics || []).slice(0, 4);
@@ -570,8 +643,30 @@
       let detail = "";
       if (expanded && podcast.status === "ready") {
         const quotesHtml = (podcast.quotes || []).map(q => `<div class="card-quote">"${esc(q)}"</div>`).join("");
-        const peopleHtml = (podcast.people || []).map(p => `<div class="card-takeaway"><strong>${esc(p.name)}</strong> — ${esc(p.context)}</div>`).join("");
-        const refsHtml = (podcast.content_references || []).map(r => `<div class="card-takeaway">📖 ${esc(r.title)}${r.author ? " — " + esc(r.author) : ""} <span style="color:#475569">(${esc(r.type)})</span></div>`).join("");
+
+        const people = (podcast.people || []).filter(p => p.type !== "company");
+        const companies = (podcast.people || []).filter(p => p.type === "company");
+
+        const peopleHtml = people.map(p =>
+          `<div class="card-takeaway"><strong>${esc(p.name)}</strong>${p.bio ? ` <span style="color:#94a3b8;font-size:12px">— ${esc(p.bio)}</span>` : ""}${p.context ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${esc(p.context)}</div>` : ""}</div>`
+        ).join("");
+
+        const companiesHtml = companies.map(c =>
+          `<div class="card-takeaway"><strong>${esc(c.name)}</strong>${c.bio ? ` <span style="color:#94a3b8;font-size:12px">— ${esc(c.bio)}</span>` : ""}${c.context ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${esc(c.context)}</div>` : ""}</div>`
+        ).join("");
+
+        const refIcon = function(type) {
+          if (type === "book") return "📖";
+          if (type === "movie" || type === "show") return "🎬";
+          if (type === "tool" || type === "product") return "🔧";
+          if (type === "game") return "🎮";
+          if (type === "video") return "📺";
+          if (type === "podcast") return "🎙️";
+          return "📄";
+        };
+        const refsHtml = (podcast.content_references || []).map(r =>
+          `<div class="card-takeaway">${refIcon(r.type)} <strong>${esc(r.title)}</strong>${r.author ? " — " + esc(r.author) : ""} <span style="color:#475569">(${esc(r.type)})</span>${r.description ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${esc(r.description)}</div>` : ""}</div>`
+        ).join("");
         const takeawaysHtml = (podcast.takeaways || []).map(t => `<div class="card-takeaway">→ ${esc(t)}</div>`).join("");
 
         detail = `
@@ -581,7 +676,8 @@
             ${podcast.url !== podcast.youtube_url && podcast.url ? `<a class="card-read-link mono" href="${esc(podcast.url)}" target="_blank" rel="noopener" style="margin-left:12px">↗ Original link</a>` : ""}
             ${quotesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Key Quotes</div>${quotesHtml}</div>` : ""}
             ${peopleHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">People Mentioned</div>${peopleHtml}</div>` : ""}
-            ${refsHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">References</div>${refsHtml}</div>` : ""}
+            ${companiesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Companies & Organizations</div>${companiesHtml}</div>` : ""}
+            ${refsHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Content Referenced</div>${refsHtml}</div>` : ""}
             ${takeawaysHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Takeaways</div>${takeawaysHtml}</div>` : ""}
             <div class="card-actions">
               <button class="delete-btn mono" onclick="event.stopPropagation();deletePodcast('${podcast.id}')">✕ Delete</button>
@@ -598,8 +694,9 @@
           </div>`;
       }
 
+      const borderColor = isError ? "#ef4444" : isWorking ? "#fbbf24" : "#a78bfa";
       return `
-        <div class="card" style="border-left:3px solid ${isError ? "#ef4444" : isProcessing ? "#fbbf24" : "#a78bfa"}" onclick="podcastCardClick('${podcast.id}')">
+        <div class="card" style="border-left:3px solid ${borderColor}" onclick="podcastCardClick('${podcast.id}')">
           <div class="card-quick">
             <button class="qk-del" title="Delete" onclick="event.stopPropagation();deletePodcast('${podcast.id}')">✕</button>
           </div>
@@ -948,7 +1045,7 @@
         }
 
         const readyCount = state.podcastItems.filter(p => p.status === "ready").length;
-        const processingCount = state.podcastItems.filter(p => p.status === "processing").length;
+        const processingCount = state.podcastItems.filter(p => p.status === "processing" || p.status === "transcribing" || p.status === "analyzing").length;
 
         document.getElementById("app").innerHTML = `
           ${tabBar}

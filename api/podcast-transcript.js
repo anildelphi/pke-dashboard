@@ -41,7 +41,8 @@ export default async function handler(req, res) {
     // 4. Find caption tracks
     const captions = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!captions || captions.length === 0) {
-      throw new Error("No captions available for this video");
+      // Return metadata with noCaptions flag so frontend can fall back to AssemblyAI
+      return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration });
     }
 
     // Prefer English, fall back to first available
