@@ -1,5 +1,17 @@
 import ytdl from "@distube/ytdl-core";
 
+// Build ytdl agent with YouTube cookies if available (needed for cloud servers)
+function getYtdlAgent() {
+  const cookieStr = process.env.YOUTUBE_COOKIES;
+  if (!cookieStr) return undefined;
+  try {
+    const cookies = JSON.parse(cookieStr);
+    return ytdl.createAgent(cookies);
+  } catch {
+    return undefined;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
@@ -41,7 +53,9 @@ export default async function handler(req, res) {
     if (!youtubeUrl) return res.status(400).json({ error: "Missing youtubeUrl or transcriptId" });
 
     // Use ytdl-core to extract audio stream URL (handles YouTube's signature decryption)
-    const info = await ytdl.getInfo(youtubeUrl);
+    const agent = getYtdlAgent();
+    const opts = agent ? { agent } : {};
+    const info = await ytdl.getInfo(youtubeUrl, opts);
     const audioFormats = ytdl
       .filterFormats(info.formats, "audioonly")
       .filter((f) => f.url)
