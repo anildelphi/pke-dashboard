@@ -5,29 +5,29 @@ export default async function handler(req, res) {
   if (!youtubeUrl) return res.status(400).json({ error: "Missing youtubeUrl" });
 
   try {
-    // 1. Extract video ID from URL
     const videoId = extractVideoId(youtubeUrl);
     if (!videoId) throw new Error("Could not extract video ID from URL");
 
-    // 2. Use YouTube innertube API to get player data (much more reliable than page scraping)
-    const playerRes = await fetch("https://www.youtube.com/youtubei/v1/player", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        videoId: videoId,
-        context: {
-          client: {
-            clientName: "WEB",
-            clientVersion: "2.20250220.01.00",
-            hl: "en",
-          },
-        },
-      }),
+    // Fetch the YouTube watch page HTML — more reliable than innertube API
+    // because YouTube serves full page data even to server IPs
+    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        Accept: "text/html,application/xhtml+xml",
+        Cookie: "CONSENT=PENDING+987; SOCS=CAISEwgDEgk2MjczNDE5NjQaAmVuIAEaBgiA_LyuBg",
+      },
     });
-    if (!playerRes.ok) throw new Error("YouTube API error: " + playerRes.status);
-    const playerData = await playerRes.json();
+    if (!pageRes.ok) throw new Error("Failed to fetch YouTube page: " + pageRes.status);
+    const html = await pageRes.text();
 
-    // 3. Extract metadata
+    // Extract ytInitialPlayerResponse from page HTML
+    const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.*?});\s*(?:var |<\/script)/s);
+    if (!playerMatch) throw new Error("Could not extract player data from YouTube page");
+    const playerData = JSON.parse(playerMatch[1]);
+
+    // Extract metadata
     const details = playerData.videoDetails || {};
     const title = details.title || "Unknown";
     const channel = details.author || "";
@@ -38,25 +38,42 @@ export default async function handler(req, res) {
         : Math.floor(lengthSec / 60) + "m"
       : "";
 
-    // 4. Find caption tracks
+    // Find caption tracks
     const captions = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!captions || captions.length === 0) {
-      // Return metadata with noCaptions flag so frontend can fall back to AssemblyAI
       return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration });
     }
 
-    // Prefer English, fall back to first available
+    // Prefer English manual captions, then English auto-generated, then first available
     const track =
+      captions.find((t) => t.languageCode === "en" && t.kind !== "asr") ||
       captions.find((t) => t.languageCode === "en") ||
       captions.find((t) => t.languageCode?.startsWith("en")) ||
       captions[0];
 
-    // 5. Fetch caption XML
-    const capRes = await fetch(track.baseUrl);
-    if (!capRes.ok) throw new Error("Failed to fetch captions");
+    // Forward cookies from the page response for session continuity
+    const setCookies = pageRes.headers.getSetCookie?.() || [];
+    const cookieStr = setCookies.map((c) => c.split(";")[0]).join("; ");
+
+    // Fetch caption XML
+    const capRes = await fetch(track.baseUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Referer: `https://www.youtube.com/watch?v=${videoId}`,
+        Accept: "*/*",
+        ...(cookieStr ? { Cookie: cookieStr } : {}),
+      },
+    });
+    if (!capRes.ok) throw new Error("Failed to fetch captions: " + capRes.status);
     const capXml = await capRes.text();
 
-    // 6. Parse <text> elements into plain text
+    // If caption content is empty (YouTube sometimes blocks this), fall back to AssemblyAI
+    if (!capXml || !capXml.includes("<text")) {
+      return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration });
+    }
+
+    // Parse <text> elements into plain text
     const texts = [...capXml.matchAll(/<text[^>]*>(.*?)<\/text>/gs)].map((m) =>
       m[1]
         .replace(/&amp;/g, "&")
@@ -68,7 +85,9 @@ export default async function handler(req, res) {
     );
     const transcript = texts.join(" ").replace(/\s+/g, " ").trim();
 
-    if (!transcript) throw new Error("Transcript is empty");
+    if (!transcript) {
+      return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration });
+    }
 
     res.status(200).json({ transcript, title, channel, duration });
   } catch (e) {
