@@ -82,7 +82,7 @@ async function fetchTranscript(videoId, youtubeUrl) {
 
 async function fetchViaSupadata(youtubeUrl) {
   const res = await fetch(
-    `https://api.supadata.ai/v1/transcript?url=${encodeURIComponent(youtubeUrl)}`,
+    `https://api.supadata.ai/v1/youtube/transcript?url=${encodeURIComponent(youtubeUrl)}`,
     { headers: { "x-api-key": process.env.SUPADATA_API_KEY } }
   );
   if (!res.ok) return null;
