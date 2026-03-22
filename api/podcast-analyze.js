@@ -21,6 +21,7 @@ export default async function handler(req, res) {
 - "content_references": Array of objects {"title": "...", "type": "book|paper|article|podcast|video|tool|movie|show|game|product", "author": "...", "description": "..."} for books, papers, tools, movies, products, or any content referenced. "description" is a 1-sentence summary of what it is and why it was referenced.
 - "topics": Array of 5-10 key topic or theme strings
 - "takeaways": Array of 5-10 actionable takeaway strings — key insights or things the listener should remember or act on
+- "category": One of: "ai", "crypto", "investing", "health", "personal", "delphi", "media", "music", "culture", "tech", "geopolitics", "uncategorized". Pick the single best-fitting category for this episode's primary topic.
 
 Podcast title: ${title}
 ${truncated ? "(Note: transcript was truncated to first ~60,000 characters)" : ""}

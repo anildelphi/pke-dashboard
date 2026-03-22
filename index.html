@@ -264,6 +264,14 @@
       toTryExpandedId: null,
       toTrySearchQuery: "",
       toTryCategory: "all",
+      // Knowledge Base
+      kbItems: [],
+      kbLoading: false,
+      kbError: null,
+      kbExpandedId: null,
+      kbSearchQuery: "",
+      kbActiveCategory: "all",
+      kbActiveType: "all",
     };
 
     function timeAgo(dateStr) {
@@ -480,12 +488,14 @@
         ...(analysis.companies || []).map(c => ({ ...c, type: c.type || "company" })),
       ];
 
+      const patchData = { status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: allPeople, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways };
+      if (analysis.category) patchData.category = analysis.category;
       await supaFetch("podcasts?id=eq." + podcastId, {
         method: "PATCH",
-        body: JSON.stringify({ status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: allPeople, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways }),
+        body: JSON.stringify(patchData),
         headers: { Prefer: "return=representation" },
       });
-      state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, status: "ready", summary: analysis.summary, quotes: analysis.quotes, people: allPeople, content_references: analysis.content_references, topics: analysis.topics, takeaways: analysis.takeaways } : p);
+      state.podcastItems = state.podcastItems.map(p => p.id === podcastId ? { ...p, ...patchData } : p);
     }
 
     async function submitPodcastUrl() {
@@ -615,6 +625,139 @@
       state.podcastInputUrl = podcast.url;
       await deletePodcast(id);
       submitPodcastUrl();
+    }
+
+    // ─── Knowledge Base ───────────────────────────────────────
+
+    async function fetchKBItems() {
+      try {
+        state.kbLoading = true;
+        render();
+        // Fetch from both tables in parallel since we may not have the view yet
+        const [contentData, podcastData] = await Promise.all([
+          supaFetch("content_items?select=id,title,url,summary,category,source_type,status,tags,key_takeaways,quotes,created_at&order=created_at.desc&limit=500"),
+          supaFetch("podcasts?select=id,title,url,youtube_url,summary,channel,duration,status,quotes,people,content_references,topics,takeaways,created_at&status=eq.ready&order=created_at.desc&limit=200"),
+        ]);
+
+        const contentItems = (contentData || []).map(item => ({
+          ...item,
+          source_table: "content",
+          takeaways: item.key_takeaways || [],
+          people: null,
+          content_references: null,
+          topics: null,
+          has_summary: !!(item.summary && item.summary.trim()),
+        }));
+
+        const podcastItems = (podcastData || []).map(item => ({
+          ...item,
+          source_table: "podcast",
+          url: item.youtube_url || item.url,
+          category: item.category || "uncategorized",
+          source_type: "podcast",
+          tags: item.topics || [],
+          has_summary: !!(item.summary && item.summary.trim()),
+        }));
+
+        state.kbItems = [...contentItems, ...podcastItems].sort((a, b) =>
+          new Date(b.created_at) - new Date(a.created_at)
+        );
+        state.kbError = null;
+      } catch (e) {
+        state.kbError = e.message;
+      } finally {
+        state.kbLoading = false;
+        render();
+      }
+    }
+
+    function getFilteredKB() {
+      return state.kbItems.filter(item => {
+        const catOk = state.kbActiveCategory === "all" || item.category === state.kbActiveCategory;
+        const typeOk = state.kbActiveType === "all" || item.source_type === state.kbActiveType;
+        const q = state.kbSearchQuery.toLowerCase();
+        const searchOk = !q
+          || (item.title || "").toLowerCase().includes(q)
+          || (item.summary || "").toLowerCase().includes(q)
+          || (item.tags || []).some(t => t.toLowerCase().includes(q))
+          || (item.takeaways || []).some(t => t.toLowerCase().includes(q))
+          || (item.channel || "").toLowerCase().includes(q)
+          || ((item.people || []).some(p => (p.name || "").toLowerCase().includes(q)))
+          || ((item.content_references || []).some(r => (r.title || "").toLowerCase().includes(q)));
+        return catOk && typeOk && searchOk;
+      });
+    }
+
+    function kbCardClick(id) {
+      if (justDragged) return;
+      state.kbExpandedId = state.kbExpandedId === id ? null : id;
+      render();
+    }
+
+    function renderKBCard(item) {
+      const cat = CATEGORIES.find(c => c.key === item.category) || CATEGORIES[CATEGORIES.length - 1];
+      const expanded = state.kbExpandedId === item.id;
+      const icon = SOURCE_ICONS[item.source_type] || "📄";
+
+      let detail = "";
+      if (expanded) {
+        const quotesHtml = (item.quotes || []).map(q => `<div class="card-quote">"${esc(q)}"</div>`).join("");
+        const takeawaysHtml = (item.takeaways || []).map(t => `<div class="card-takeaway">→ ${esc(t)}</div>`).join("");
+
+        let podcastExtra = "";
+        if (item.source_table === "podcast") {
+          const people = (item.people || []).filter(p => p.type !== "company");
+          const companies = (item.people || []).filter(p => p.type === "company");
+          const refsHtml = (item.content_references || []).map(r => {
+            const ri = r.type === "book" ? "📖" : r.type === "tool" || r.type === "product" ? "🔧" : r.type === "movie" || r.type === "show" ? "🎬" : "📄";
+            return `<div class="card-takeaway">${ri} <strong>${esc(r.title)}</strong>${r.author ? " — " + esc(r.author) : ""} <span style="color:#475569">(${esc(r.type)})</span>${r.description ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${esc(r.description)}</div>` : ""}</div>`;
+          }).join("");
+          const peopleHtml = people.map(p =>
+            `<div class="card-takeaway"><strong>${esc(p.name)}</strong>${p.bio ? ` <span style="color:#94a3b8;font-size:12px">— ${esc(p.bio)}</span>` : ""}</div>`
+          ).join("");
+          const companiesHtml = companies.map(c =>
+            `<div class="card-takeaway"><strong>${esc(c.name)}</strong>${c.bio ? ` <span style="color:#94a3b8;font-size:12px">— ${esc(c.bio)}</span>` : ""}</div>`
+          ).join("");
+          podcastExtra = `
+            ${peopleHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">People Mentioned</div>${peopleHtml}</div>` : ""}
+            ${companiesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Companies & Organizations</div>${companiesHtml}</div>` : ""}
+            ${refsHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Content Referenced</div>${refsHtml}</div>` : ""}
+          `;
+        }
+
+        detail = `
+          <div class="card-detail" onclick="event.stopPropagation()">
+            ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary yet</p>`}
+            ${item.url ? `<a class="card-read-link mono" href="${esc(item.url)}" target="_blank" rel="noopener">↗ Open</a>` : ""}
+            ${quotesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Key Quotes</div>${quotesHtml}</div>` : ""}
+            ${takeawaysHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Takeaways</div>${takeawaysHtml}</div>` : ""}
+            ${podcastExtra}
+          </div>`;
+      }
+
+      const summaryPreview = item.summary ? item.summary.substring(0, 120) + (item.summary.length > 120 ? "..." : "") : "";
+      const tags = (item.tags || []).filter(t => !t.startsWith("try:")).slice(0, 3);
+
+      return `
+        <div class="card" style="border-left:3px solid ${cat.color}" onclick="kbCardClick('${item.id}')">
+          <div class="card-top">
+            <span class="card-icon">${icon}</span>
+            <div class="card-content">
+              <div class="card-title ${expanded ? "expanded" : ""}">${esc(item.title)}</div>
+              <div class="card-meta">
+                <span class="card-cat mono" style="color:${cat.color};background:${cat.color}15">${cat.label}</span>
+                <span class="card-cat mono" style="color:#94a3b8;background:rgba(148,163,184,0.1)">${item.source_type}</span>
+                ${item.channel ? `<span class="card-cat mono" style="color:#a78bfa;background:rgba(167,139,250,0.15)">${esc(item.channel)}</span>` : ""}
+                ${item.duration ? `<span class="card-time mono">${esc(item.duration)}</span>` : ""}
+                <span class="card-time mono">${timeAgo(item.created_at)}</span>
+                ${!item.has_summary ? '<span class="card-cat mono" style="color:#fbbf24;background:rgba(251,191,36,0.1);font-size:10px">needs enrichment</span>' : ""}
+              </div>
+              ${!expanded && summaryPreview ? `<div style="font-size:12px;color:#64748b;margin-top:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(summaryPreview)}</div>` : ""}
+              ${tags.length && !expanded ? `<div class="card-tags">${tags.map(t => `<span class="card-tag mono">${esc(t)}</span>`).join("")}</div>` : ""}
+            </div>
+          </div>
+          ${detail}
+        </div>`;
     }
 
     function podcastCardClick(id) {
@@ -929,6 +1072,7 @@
           <button class="tab ${state.activeTab === "totry" ? "active" : ""}" onclick="switchTab('totry')">To Try</button>
           <button class="tab ${state.activeTab === "todo" ? "active" : ""}" onclick="switchTab('todo')">To Do</button>
           <button class="tab ${state.activeTab === "podcasts" ? "active" : ""}" onclick="switchTab('podcasts')">Podcasts</button>
+          <button class="tab ${state.activeTab === "kb" ? "active" : ""}" onclick="switchTab('kb')">Knowledge Base</button>
         </div>`;
 
       if (state.activeTab === "totry") {
@@ -1083,6 +1227,79 @@
           ${state.podcastError ? `<div class="error-bar mono">⚠ ${esc(state.podcastError)}<button onclick="state.podcastError=null;render()">dismiss</button></div>` : ""}
           ${podcastContent}
         `;
+      } else if (state.activeTab === "kb") {
+        const kbFiltered = getFilteredKB();
+        const kbUsedCats = new Set(state.kbItems.map(i => i.category));
+        const kbUsedTypes = new Set(state.kbItems.map(i => i.source_type));
+        const kbThisWeek = state.kbItems.filter(i => (Date.now() - new Date(i.created_at)) < 604800000).length;
+        const kbWithSummary = state.kbItems.filter(i => i.has_summary).length;
+        const kbArticles = state.kbItems.filter(i => i.source_table === "content").length;
+        const kbPodcasts = state.kbItems.filter(i => i.source_table === "podcast").length;
+
+        let kbContent;
+        if (state.kbLoading && state.kbItems.length === 0) {
+          kbContent = '<div class="loading mono"><div class="brain">🧠</div><div>loading knowledge base...</div></div>';
+        } else if (state.kbItems.length === 0) {
+          kbContent = '<div style="text-align:center;padding:48px 0;color:#334155;font-size:12px" class="mono">knowledge base is empty — save articles and analyze podcasts to populate it</div>';
+        } else if (kbFiltered.length === 0) {
+          kbContent = '<div style="text-align:center;padding:48px 0;color:#334155;font-size:12px" class="mono">no items match your filters</div>';
+        } else {
+          kbContent = `<div style="display:grid;grid-template-columns:1fr;gap:2px">${kbFiltered.map(renderKBCard).join("")}</div>`;
+        }
+
+        const typeFilters = [
+          { key: "all", label: "All" },
+          ...["article", "podcast", "video", "paper", "book", "note", "tweet", "thread"]
+            .filter(t => kbUsedTypes.has(t))
+            .map(t => ({ key: t, label: t.charAt(0).toUpperCase() + t.slice(1) + "s", icon: SOURCE_ICONS[t] || "" }))
+        ];
+
+        document.getElementById("app").innerHTML = `
+          ${tabBar}
+          <div class="header">
+            <div class="header-left">
+              <span style="font-size:28px">🧠</span>
+              <div>
+                <h1 class="mono">Knowledge Base</h1>
+                <p class="sub mono">Everything you've saved, unified</p>
+              </div>
+            </div>
+            <div class="header-right">
+              <div class="search-wrap">
+                <span class="icon">⌕</span>
+                <input type="text" placeholder="search knowledge base..." value="${esc(state.kbSearchQuery)}" oninput="state.kbSearchQuery=this.value;render()" />
+              </div>
+              <button class="btn" onclick="fetchKBItems()">↻</button>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="mono"><span class="stat-val" style="color:#e2e8f0">${state.kbItems.length}</span><span class="stat-label">total</span></div>
+            <div class="mono"><span class="stat-val" style="color:#60a5fa">${kbArticles}</span><span class="stat-label">articles</span></div>
+            <div class="mono"><span class="stat-val" style="color:#a78bfa">${kbPodcasts}</span><span class="stat-label">podcasts</span></div>
+            <div class="mono"><span class="stat-val" style="color:#fbbf24">${kbThisWeek}</span><span class="stat-label">this week</span></div>
+            <div class="mono"><span class="stat-val" style="color:#34d399">${Math.round(kbWithSummary / Math.max(state.kbItems.length, 1) * 100)}%</span><span class="stat-label">enriched</span></div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            ${typeFilters.map(t => `
+              <button class="cat-btn ${state.kbActiveType === t.key ? "active" : ""}" style="${state.kbActiveType === t.key ? "color:#e2e8f0;background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)" : ""}" onclick="state.kbActiveType='${t.key}';render()">
+                ${t.icon ? t.icon + " " : ""}${t.label}
+              </button>
+            `).join("")}
+          </div>
+
+          <div class="cat-filters">
+            ${CATEGORIES.filter(c => c.key === "all" || kbUsedCats.has(c.key)).map(c => `
+              <button class="cat-btn ${state.kbActiveCategory === c.key ? "active" : ""}" style="${state.kbActiveCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.kbActiveCategory='${c.key}';render()">
+                ${c.label}${c.key !== "all" ? `<span class="count">${state.kbItems.filter(i => i.category === c.key).length}</span>` : ""}
+              </button>
+            `).join("")}
+          </div>
+
+          ${state.kbError ? `<div class="error-bar mono">⚠ ${esc(state.kbError)}<button onclick="fetchKBItems()">retry</button></div>` : ""}
+          ${kbContent}
+        `;
       } else {
         document.getElementById("app").innerHTML = `
           ${tabBar}
@@ -1137,6 +1354,8 @@
         fetchTrelloBoard();
       } else if (tab === "podcasts" && state.podcastItems.length === 0 && !state.podcastLoading) {
         fetchPodcasts();
+      } else if (tab === "kb" && state.kbItems.length === 0 && !state.kbLoading) {
+        fetchKBItems();
       } else {
         render();
       }
