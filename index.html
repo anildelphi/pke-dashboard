@@ -272,6 +272,9 @@
       kbSearchQuery: "",
       kbActiveCategory: "all",
       kbActiveType: "all",
+      kbEnriching: false,
+      kbEnrichProgress: 0,
+      kbEnrichTotal: 0,
     };
 
     function timeAgo(dateStr) {
@@ -671,6 +674,60 @@
       }
     }
 
+    async function enrichKBItem(item) {
+      try {
+        const res = await fetch("/api/kb-enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: [{ id: item.id, source_table: item.source_table, title: item.title, url: item.url, source_type: item.source_type, tags: item.tags, summary: item.summary }] }),
+        });
+        if (!res.ok) throw new Error("Enrichment failed");
+        const data = await res.json();
+        if (data.enriched > 0) {
+          await fetchKBItems();
+        }
+      } catch (e) {
+        state.kbError = "Enrichment failed: " + e.message;
+        render();
+      }
+    }
+
+    async function enrichAllKB() {
+      const needsEnrichment = state.kbItems.filter(i => !i.has_summary);
+      if (needsEnrichment.length === 0) return;
+
+      state.kbEnriching = true;
+      state.kbEnrichTotal = needsEnrichment.length;
+      state.kbEnrichProgress = 0;
+      render();
+
+      // Process in batches of 3
+      for (let i = 0; i < needsEnrichment.length; i += 3) {
+        const batch = needsEnrichment.slice(i, i + 3).map(item => ({
+          id: item.id, source_table: item.source_table, title: item.title,
+          url: item.url, source_type: item.source_type, tags: item.tags, summary: item.summary,
+        }));
+
+        try {
+          const res = await fetch("/api/kb-enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ items: batch }),
+          });
+          if (!res.ok) throw new Error("Batch failed");
+          const data = await res.json();
+          state.kbEnrichProgress += data.enriched;
+        } catch (e) {
+          state.kbEnrichProgress += batch.length; // skip failures
+        }
+        render();
+      }
+
+      state.kbEnriching = false;
+      render();
+      await fetchKBItems();
+    }
+
     function getFilteredKB() {
       return state.kbItems.filter(item => {
         const catOk = state.kbActiveCategory === "all" || item.category === state.kbActiveCategory;
@@ -727,7 +784,7 @@
 
         detail = `
           <div class="card-detail" onclick="event.stopPropagation()">
-            ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary yet</p>`}
+            ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary yet <button class="move-btn mono" style="color:#fbbf24;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);margin-left:8px;font-size:11px" onclick="event.stopPropagation();enrichKBItem(state.kbItems.find(i=>i.id==='${item.id}'))">✦ Enrich</button></p>`}
             ${item.url ? `<a class="card-read-link mono" href="${esc(item.url)}" target="_blank" rel="noopener">↗ Open</a>` : ""}
             ${quotesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Key Quotes</div>${quotesHtml}</div>` : ""}
             ${takeawaysHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Takeaways</div>${takeawaysHtml}</div>` : ""}
@@ -1269,6 +1326,12 @@
                 <span class="icon">⌕</span>
                 <input type="text" placeholder="search knowledge base..." value="${esc(state.kbSearchQuery)}" oninput="state.kbSearchQuery=this.value;render()" />
               </div>
+              ${state.kbEnriching
+                ? `<span class="mono" style="font-size:11px;color:#fbbf24">enriching ${state.kbEnrichProgress}/${state.kbEnrichTotal}...</span>`
+                : state.kbItems.some(i => !i.has_summary)
+                  ? `<button class="btn" onclick="enrichAllKB()" style="font-size:11px;padding:6px 12px;color:#fbbf24;border:1px solid rgba(251,191,36,0.3)">✦ Enrich All (${state.kbItems.filter(i => !i.has_summary).length})</button>`
+                  : ""
+              }
               <button class="btn" onclick="fetchKBItems()">↻</button>
             </div>
           </div>
