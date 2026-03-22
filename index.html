@@ -275,6 +275,9 @@
       kbEnriching: false,
       kbEnrichProgress: 0,
       kbEnrichTotal: 0,
+      kbAISearching: false,
+      kbAIAnswer: null,
+      kbAISources: [],
     };
 
     function timeAgo(dateStr) {
@@ -726,6 +729,41 @@
       state.kbEnriching = false;
       render();
       await fetchKBItems();
+    }
+
+    async function searchKB() {
+      const query = state.kbSearchQuery.trim();
+      if (!query) return;
+
+      state.kbAISearching = true;
+      state.kbAIAnswer = null;
+      state.kbAISources = [];
+      render();
+
+      try {
+        const res = await fetch("/api/kb-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        if (!res.ok) throw new Error("Search failed");
+        const data = await res.json();
+        state.kbAIAnswer = data.answer;
+        state.kbAISources = data.sources || [];
+      } catch (e) {
+        state.kbAIAnswer = "Search failed: " + e.message;
+        state.kbAISources = [];
+      } finally {
+        state.kbAISearching = false;
+        render();
+      }
+    }
+
+    function clearKBSearch() {
+      state.kbSearchQuery = "";
+      state.kbAIAnswer = null;
+      state.kbAISources = [];
+      render();
     }
 
     function getFilteredKB() {
@@ -1322,10 +1360,6 @@
               </div>
             </div>
             <div class="header-right">
-              <div class="search-wrap">
-                <span class="icon">⌕</span>
-                <input type="text" placeholder="search knowledge base..." value="${esc(state.kbSearchQuery)}" oninput="state.kbSearchQuery=this.value;render()" />
-              </div>
               ${state.kbEnriching
                 ? `<span class="mono" style="font-size:11px;color:#fbbf24">enriching ${state.kbEnrichProgress}/${state.kbEnrichTotal}...</span>`
                 : state.kbItems.some(i => !i.has_summary)
@@ -1335,6 +1369,40 @@
               <button class="btn" onclick="fetchKBItems()">↻</button>
             </div>
           </div>
+
+          <div style="margin-bottom:16px;display:flex;gap:8px;">
+            <div style="flex:1;position:relative">
+              <input type="text" class="mono" placeholder="Ask your knowledge base... e.g. 'what did Huberman say about dopamine?'"
+                value="${esc(state.kbSearchQuery)}"
+                oninput="state.kbSearchQuery=this.value;if(!this.value){clearKBSearch()}else{render()}"
+                onkeydown="if(event.key==='Enter'&&this.value.trim())searchKB()"
+                style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(167,139,250,0.3);border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:13px;outline:none;font-family:'IBM Plex Mono',monospace;"
+              />
+            </div>
+            ${state.kbSearchQuery.trim() ? `
+              <button class="btn" onclick="searchKB()" ${state.kbAISearching ? "disabled" : ""}
+                style="padding:10px 20px;${state.kbAISearching ? "opacity:0.5;cursor:wait;" : ""}background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.3)">
+                ${state.kbAISearching ? "⏳ Searching..." : "🔍 Ask AI"}
+              </button>
+              ${state.kbAIAnswer ? `<button class="btn" onclick="clearKBSearch()" style="padding:10px 14px;font-size:11px">✕ Clear</button>` : ""}
+            ` : ""}
+          </div>
+
+          ${state.kbAIAnswer ? `
+            <div style="margin-bottom:20px;padding:16px 20px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.15);border-radius:10px;border-left:3px solid #a78bfa">
+              <div class="mono" style="font-size:11px;color:#a78bfa;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">AI Answer</div>
+              <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap">${esc(state.kbAIAnswer)}</div>
+              ${state.kbAISources.length ? `
+                <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px">
+                  ${state.kbAISources.map(s => `
+                    <a href="${esc(s.url || '#')}" target="_blank" rel="noopener" class="mono" style="font-size:10px;padding:3px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#94a3b8;text-decoration:none;display:inline-flex;align-items:center;gap:4px">
+                      [${s.index}] ${SOURCE_ICONS[s.source_type] || "📄"} ${esc((s.title || "").substring(0, 40))}${(s.title || "").length > 40 ? "..." : ""}
+                    </a>
+                  `).join("")}
+                </div>
+              ` : ""}
+            </div>
+          ` : ""}
 
           <div class="stats">
             <div class="mono"><span class="stat-val" style="color:#e2e8f0">${state.kbItems.length}</span><span class="stat-label">total</span></div>
