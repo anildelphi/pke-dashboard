@@ -14,10 +14,10 @@ export default async function handler(req, res) {
     const videoId = extractVideoId(youtubeUrl);
     if (!videoId) throw new Error("Could not extract video ID from URL");
 
-    // Fetch metadata via oEmbed (reliable from any IP) and transcript via innertube Android API
+    // Fetch metadata and transcript in parallel
     const [meta, transcript] = await Promise.all([
       fetchMetadata(videoId),
-      fetchTranscriptViaInnerTube(videoId),
+      fetchTranscript(videoId, youtubeUrl),
     ]);
 
     const { title, channel, duration } = meta;
@@ -32,39 +32,136 @@ export default async function handler(req, res) {
   }
 }
 
-// Use YouTube's innertube Android API to get caption tracks, then fetch captions directly
-// This is the same approach used by youtube-transcript-api and youtube-transcript npm packages
-async function fetchTranscriptViaInnerTube(videoId) {
-  // Step 1: Call innertube player API with Android client to get caption track URLs
-  const playerRes = await fetch(INNERTUBE_URL, {
+// Try multiple approaches — Supadata handles cloud IP blocking, innertube works locally
+async function fetchTranscript(videoId, youtubeUrl) {
+  // Approach 1: Supadata API (works from cloud IPs, 100 free requests/month)
+  if (process.env.SUPADATA_API_KEY) {
+    try {
+      const text = await fetchViaSupadata(youtubeUrl);
+      if (text) return text;
+    } catch {}
+  }
+
+  // Approach 2: Direct innertube API with Android client
+  try {
+    const tracks = await getTracksViaInnerTube(videoId, {
+      name: "ANDROID",
+      version: ANDROID_VERSION,
+      ua: ANDROID_UA,
+    });
+    if (tracks) {
+      const text = await fetchCaptionText(tracks);
+      if (text) return text;
+    }
+  } catch {}
+
+  // Approach 3: Innertube with WEB client identity
+  try {
+    const tracks = await getTracksViaInnerTube(videoId, {
+      name: "WEB",
+      version: "2.20240313.05.00",
+      ua: BROWSER_UA,
+    });
+    if (tracks) {
+      const text = await fetchCaptionText(tracks);
+      if (text) return text;
+    }
+  } catch {}
+
+  // Approach 4: Scrape YouTube web page
+  try {
+    const tracks = await getTracksViaWebPage(videoId);
+    if (tracks) {
+      const text = await fetchCaptionText(tracks);
+      if (text) return text;
+    }
+  } catch {}
+
+  return null;
+}
+
+async function fetchViaSupadata(youtubeUrl) {
+  const res = await fetch(
+    `https://api.supadata.ai/v1/transcript?url=${encodeURIComponent(youtubeUrl)}`,
+    { headers: { "x-api-key": process.env.SUPADATA_API_KEY } }
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  // Supadata returns { content: [{ text, offset, duration, lang }] } or { content: "text" }
+  if (typeof data.content === "string") return data.content;
+  if (Array.isArray(data.content)) {
+    return data.content
+      .map((s) => s.text)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim() || null;
+  }
+  return null;
+}
+
+async function getTracksViaInnerTube(videoId, client) {
+  const res = await fetch(INNERTUBE_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": ANDROID_UA },
+    headers: { "Content-Type": "application/json", "User-Agent": client.ua },
     body: JSON.stringify({
-      context: { client: { clientName: "ANDROID", clientVersion: ANDROID_VERSION } },
+      context: { client: { clientName: client.name, clientVersion: client.version } },
       videoId,
     }),
   });
-  if (!playerRes.ok) return null;
-
-  const data = await playerRes.json();
+  if (!res.ok) return null;
+  const data = await res.json();
   const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  return Array.isArray(tracks) && tracks.length > 0 ? tracks : null;
+}
 
-  // Prefer English manual captions, then English auto-generated, then first available
+async function getTracksViaWebPage(videoId) {
+  const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+    headers: {
+      "User-Agent": BROWSER_UA,
+      "Accept-Language": "en-US,en;q=0.9",
+      Accept: "text/html,application/xhtml+xml",
+      Cookie: "CONSENT=PENDING+987; SOCS=CAISEwgDEgk2MjczNDE5NjQaAmVuIAEaBgiA_LyuBg",
+    },
+  });
+  if (!res.ok) return null;
+  const html = await res.text();
+
+  const marker = "var ytInitialPlayerResponse = ";
+  const start = html.indexOf(marker);
+  if (start === -1) return null;
+
+  const jsonStart = start + marker.length;
+  let depth = 0;
+  for (let i = jsonStart; i < html.length; i++) {
+    if (html[i] === "{") depth++;
+    else if (html[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const data = JSON.parse(html.slice(jsonStart, i + 1));
+          const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+          return Array.isArray(tracks) && tracks.length > 0 ? tracks : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+async function fetchCaptionText(tracks) {
   const track =
     tracks.find((t) => t.languageCode === "en" && t.kind !== "asr") ||
     tracks.find((t) => t.languageCode === "en") ||
     tracks.find((t) => t.languageCode?.startsWith("en")) ||
     tracks[0];
 
-  // Step 2: Fetch caption content from the track URL
-  const capRes = await fetch(track.baseUrl, {
+  const res = await fetch(track.baseUrl, {
     headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en" },
   });
-  if (!capRes.ok) return null;
-  const xml = await capRes.text();
-
-  // Step 3: Parse — try new <p>/<s> format first, fall back to legacy <text> format
+  if (!res.ok) return null;
+  const xml = await res.text();
   return parseTranscriptXml(xml);
 }
 
@@ -86,14 +183,14 @@ function parseTranscriptXml(xml) {
   const textSegments = [...xml.matchAll(/<text[^>]*>(.*?)<\/text>/gs)];
   if (textSegments.length === 0) return null;
 
-  const result = textSegments
-    .map((m) => decodeEntities(m[1]).replace(/\n/g, " ").trim())
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return result || null;
+  return (
+    textSegments
+      .map((m) => decodeEntities(m[1]).replace(/\n/g, " ").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim() || null
+  );
 }
 
 function decodeEntities(str) {
@@ -110,14 +207,12 @@ function decodeEntities(str) {
 
 async function fetchMetadata(videoId) {
   try {
-    // oEmbed for title/channel — works from any IP, no auth needed
     const oembedRes = await fetch(
       `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
     );
     if (!oembedRes.ok) throw new Error("oEmbed failed");
     const oembed = await oembedRes.json();
 
-    // Innertube for duration
     let duration = "";
     try {
       const playerRes = await fetch(INNERTUBE_URL, {
