@@ -113,12 +113,19 @@ Return ONLY valid JSON, no markdown fences.`;
     const jsonStr = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?\s*```$/, "").trim();
     const digestContent = JSON.parse(jsonStr);
 
-    // Upsert digest into Supabase
-    await supaFetch("kb_digests", {
-      method: "POST",
-      body: JSON.stringify({ week_start: weekStartStr, week_end: weekEndStr, content: digestContent }),
-      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    });
+    // Upsert digest into Supabase — try update first, then insert
+    const existing = await supaFetch("kb_digests?week_start=eq." + weekStartStr + "&limit=1");
+    if (existing && existing.length > 0) {
+      await supaFetch("kb_digests?week_start=eq." + weekStartStr, {
+        method: "PATCH",
+        body: JSON.stringify({ content: digestContent }),
+      });
+    } else {
+      await supaFetch("kb_digests", {
+        method: "POST",
+        body: JSON.stringify({ week_start: weekStartStr, week_end: weekEndStr, content: digestContent }),
+      });
+    }
 
     // Send email if requested or cron-triggered
     if ((sendEmail || isCron) && process.env.RESEND_API_KEY && process.env.DIGEST_EMAIL) {
