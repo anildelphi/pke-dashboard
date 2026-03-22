@@ -14,25 +14,21 @@ export default async function handler(req, res) {
     const videoId = extractVideoId(youtubeUrl);
     if (!videoId) throw new Error("Could not extract video ID from URL");
 
-    const debug = {};
-
     // Fetch metadata and transcript in parallel
     const [meta, transcript] = await Promise.all([
-      fetchMetadata(videoId).catch((e) => { debug.metaError = e.message; return { title: "Unknown", channel: "", duration: "" }; }),
-      fetchTranscript(videoId, youtubeUrl).catch((e) => { debug.transcriptError = e.message; return null; }),
+      fetchMetadata(videoId),
+      fetchTranscript(videoId, youtubeUrl),
     ]);
 
     const { title, channel, duration } = meta;
-    debug.hasSupadataKey = !!process.env.SUPADATA_API_KEY;
-    debug.videoId = videoId;
 
     if (!transcript) {
-      return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration, debug });
+      return res.status(200).json({ transcript: null, noCaptions: true, title, channel, duration });
     }
 
     res.status(200).json({ transcript, title, channel, duration });
   } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack });
+    res.status(500).json({ error: e.message });
   }
 }
 
