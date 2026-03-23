@@ -121,6 +121,13 @@
       border-left: 2px solid rgba(148,163,184,0.3);
     }
     .card-no-summary { font-size: 12px; color: #475569; font-style: italic; margin-bottom: 14px; }
+    .meeting-notes {
+      font-size: 13px; color: #cbd5e1; line-height: 1.8; margin-bottom: 14px;
+      background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px;
+      border-left: 3px solid rgba(251,191,36,0.4); max-height: 400px; overflow-y: auto;
+    }
+    .meeting-notes p { margin-bottom: 12px; }
+    .meeting-notes p:last-child { margin-bottom: 0; }
     .card-read-link {
       display: inline-block; font-size: 11px; color: #60a5fa; margin-bottom: 12px;
       text-decoration: none; font-family: 'IBM Plex Mono', monospace;
@@ -1240,10 +1247,23 @@
 
             let detail = "";
             if (expanded) {
+              const fullNotes = item.raw_content || item.description || "";
+              const hasFullNotes = fullNotes.trim().length > 0;
+              
+              // Format notes: convert newlines to <br>, preserve structure
+              const formattedNotes = esc(fullNotes)
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                .replace(/^/, '<p>').replace(/$/, '</p>');
+              
               detail = `
                 <div class="card-detail" onclick="event.stopPropagation()">
-                  ${item.summary ? `<div class="card-summary">${esc(item.summary)}</div>` : '<div class="card-no-summary">No summary available</div>'}
-                  ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open Notes</a>` : ""}
+                  ${item.summary ? `<div class="card-section-label">Summary</div><div class="card-summary">${esc(item.summary)}</div>` : ''}
+                  ${hasFullNotes ? `
+                    <div class="card-section-label" style="margin-top:12px">Full Notes</div>
+                    <div class="meeting-notes">${formattedNotes}</div>
+                  ` : (!item.summary ? '<div class="card-no-summary">No notes available yet</div>' : '')}
+                  ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open in Browser</a>` : ""}
                   <div class="card-actions">
                     <button class="delete-btn mono" onclick="deleteItem('${item.id}')">🗑 delete</button>
                   </div>
