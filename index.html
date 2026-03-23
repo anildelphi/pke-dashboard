@@ -30,6 +30,7 @@
     }
     .tab:hover { color: #94a3b8; }
     .tab.active { color: #e2e8f0; border-bottom-color: #60a5fa; }
+    .tab.drag-target { background: rgba(251,191,36,0.15); color: #fbbf24; border-bottom-color: #fbbf24; }
 
     /* Header */
     .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 12px; }
@@ -1222,12 +1223,12 @@
 
       const tabBar = `
         <div class="tab-bar">
-          <button class="tab ${state.activeTab === "readings" ? "active" : ""}" onclick="switchTab('readings')">Readings</button>
-          <button class="tab ${state.activeTab === "meetings" ? "active" : ""}" onclick="switchTab('meetings')">Meetings</button>
-          <button class="tab ${state.activeTab === "totry" ? "active" : ""}" onclick="switchTab('totry')">To Try</button>
-          <button class="tab ${state.activeTab === "todo" ? "active" : ""}" onclick="switchTab('todo')">To Do</button>
-          <button class="tab ${state.activeTab === "podcasts" ? "active" : ""}" onclick="switchTab('podcasts')">Podcasts</button>
-          <button class="tab ${state.activeTab === "kb" ? "active" : ""}" onclick="switchTab('kb')">Knowledge Base</button>
+          <button class="tab ${state.activeTab === "readings" ? "active" : ""}" data-tab="readings" onclick="switchTab('readings')">Readings</button>
+          <button class="tab ${state.activeTab === "meetings" ? "active" : ""}" data-tab="meetings" onclick="switchTab('meetings')">Meetings</button>
+          <button class="tab ${state.activeTab === "totry" ? "active" : ""}" data-tab="totry" onclick="switchTab('totry')">To Try</button>
+          <button class="tab ${state.activeTab === "todo" ? "active" : ""}" data-tab="todo" onclick="switchTab('todo')">To Do</button>
+          <button class="tab ${state.activeTab === "podcasts" ? "active" : ""}" data-tab="podcasts" onclick="switchTab('podcasts')">Podcasts</button>
+          <button class="tab ${state.activeTab === "kb" ? "active" : ""}" data-tab="kb" onclick="switchTab('kb')">Knowledge Base</button>
         </div>`;
 
       if (state.activeTab === "meetings") {
@@ -1719,14 +1720,24 @@
       drag.clone.style.left = (e.clientX - drag.offsetX) + "px";
       drag.clone.style.top = (e.clientY - drag.offsetY) + "px";
       document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
+      document.querySelectorAll(".tab.drag-target").forEach(function(t) { t.classList.remove("drag-target"); });
       // Hide clone so elementFromPoint reliably finds the column underneath
       drag.clone.style.visibility = "hidden";
       var el = document.elementFromPoint(e.clientX, e.clientY);
       drag.clone.style.visibility = "";
-      var col = el && el.closest(".column");
-      if (col) {
-        col.classList.add("drag-over");
-        drag.targetStatus = col.dataset.status;
+      // Check for tab drop target (only To Try tab accepts drops from other tabs)
+      var tab = el && el.closest(".tab[data-tab]");
+      if (tab && tab.dataset.tab === "totry" && drag.source === "pke") {
+        tab.classList.add("drag-target");
+        drag.targetTab = "totry";
+        drag.targetStatus = null;
+      } else {
+        drag.targetTab = null;
+        var col = el && el.closest(".column");
+        if (col) {
+          col.classList.add("drag-over");
+          drag.targetStatus = col.dataset.status;
+        }
       }
     });
 
@@ -1739,19 +1750,30 @@
         }
         drag.card.classList.remove("dragging");
         document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
+        document.querySelectorAll(".tab.drag-target").forEach(function(t) { t.classList.remove("drag-target"); });
         var el = document.elementFromPoint(e.clientX, e.clientY);
-        var col = el && el.closest(".column");
-        var target = col ? col.dataset.status : drag.targetStatus;
-        if (target) {
-          if (drag.source === "trello") {
-            var card = state.trelloCards.find(function(c) { return c.id === drag.id; });
-            if (card && card.idList !== target) moveTrelloCard(drag.id, target);
-          } else if (drag.source === "totry") {
-            var item = state.items.find(function(i) { return i.id === drag.id; });
-            if (item && getToTryColumnKey(item) !== target) moveToTryColumn(drag.id, target);
-          } else {
-            var item = state.items.find(function(i) { return i.id === drag.id; });
-            if (item && item.status !== target) updateStatus(drag.id, target);
+        
+        // Check if dropped on To Try tab
+        var tab = el && el.closest(".tab[data-tab]");
+        if (tab && tab.dataset.tab === "totry" && drag.source === "pke") {
+          var item = state.items.find(function(i) { return i.id === drag.id; });
+          if (item && item.status !== "to_try") {
+            updateStatus(drag.id, "to_try");
+          }
+        } else {
+          var col = el && el.closest(".column");
+          var target = col ? col.dataset.status : drag.targetStatus;
+          if (target) {
+            if (drag.source === "trello") {
+              var card = state.trelloCards.find(function(c) { return c.id === drag.id; });
+              if (card && card.idList !== target) moveTrelloCard(drag.id, target);
+            } else if (drag.source === "totry") {
+              var item = state.items.find(function(i) { return i.id === drag.id; });
+              if (item && getToTryColumnKey(item) !== target) moveToTryColumn(drag.id, target);
+            } else {
+              var item = state.items.find(function(i) { return i.id === drag.id; });
+              if (item && item.status !== target) updateStatus(drag.id, target);
+            }
           }
         }
         justDragged = true;
