@@ -294,6 +294,36 @@
       meetingsExpandedId: null,
     };
 
+    // Scroll position preservation
+    let savedScrollPositions = {};
+    
+    function saveScrollPositions() {
+      savedScrollPositions = {
+        window: window.scrollY,
+        columns: {}
+      };
+      document.querySelectorAll('.column-body').forEach((col, i) => {
+        const status = col.closest('.column')?.dataset?.status;
+        if (status) {
+          savedScrollPositions.columns[status] = col.scrollTop;
+        }
+      });
+    }
+    
+    function restoreScrollPositions() {
+      requestAnimationFrame(() => {
+        if (savedScrollPositions.window) {
+          window.scrollTo(0, savedScrollPositions.window);
+        }
+        document.querySelectorAll('.column-body').forEach(col => {
+          const status = col.closest('.column')?.dataset?.status;
+          if (status && savedScrollPositions.columns[status]) {
+            col.scrollTop = savedScrollPositions.columns[status];
+          }
+        });
+      });
+    }
+
     function timeAgo(dateStr) {
       const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
       if (diff < 60) return "just now";
@@ -330,8 +360,10 @@
     }
 
     async function updateStatus(id, newStatus) {
+      saveScrollPositions();
       state.items = state.items.map(i => i.id === id ? { ...i, status: newStatus } : i);
       render();
+      restoreScrollPositions();
       try {
         await supaFetch("content_items?id=eq." + id, {
           method: "PATCH",
@@ -342,9 +374,11 @@
     }
 
     async function deleteItem(id) {
+      saveScrollPositions();
       state.items = state.items.filter(i => i.id !== id);
       state.expandedId = null;
       render();
+      restoreScrollPositions();
       try { await supaFetch("content_items?id=eq." + id, { method: "DELETE" }); } catch (e) { fetchItems(); }
     }
 
@@ -379,17 +413,21 @@
     }
 
     async function moveTrelloCard(cardId, listId) {
+      saveScrollPositions();
       state.trelloCards = state.trelloCards.map(c => c.id === cardId ? { ...c, idList: listId, listId: listId } : c);
       render();
+      restoreScrollPositions();
       try {
         await trelloFetch("cards/" + cardId, { method: "PUT", body: JSON.stringify({ idList: listId }) });
       } catch (e) { fetchTrelloBoard(); }
     }
 
     async function archiveTrelloCard(cardId) {
+      saveScrollPositions();
       state.trelloCards = state.trelloCards.filter(c => c.id !== cardId);
       state.trelloExpandedId = null;
       render();
+      restoreScrollPositions();
       try {
         await trelloFetch("cards/" + cardId, { method: "PUT", body: JSON.stringify({ closed: true }) });
       } catch (e) { fetchTrelloBoard(); }
@@ -633,9 +671,11 @@
     }
 
     async function deletePodcast(id) {
+      saveScrollPositions();
       state.podcastItems = state.podcastItems.filter(p => p.id !== id);
       state.podcastExpandedId = null;
       render();
+      restoreScrollPositions();
       try { await supaFetch("podcasts?id=eq." + id, { method: "DELETE" }); } catch (e) { fetchPodcasts(); }
     }
 
@@ -1042,10 +1082,12 @@
     async function moveToTryColumn(id, columnKey) {
       const item = state.items.find(i => i.id === id);
       if (!item) return;
+      saveScrollPositions();
       const newTags = (item.tags || []).filter(t => !t.startsWith(TRY_TAG_PREFIX));
       if (columnKey !== "other") newTags.push(TRY_TAG_PREFIX + columnKey);
       state.items = state.items.map(i => i.id === id ? { ...i, tags: newTags } : i);
       render();
+      restoreScrollPositions();
       try {
         await supaFetch("content_items?id=eq." + id, {
           method: "PATCH",
