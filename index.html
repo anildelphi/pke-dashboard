@@ -1725,11 +1725,11 @@
       drag.clone.style.visibility = "hidden";
       var el = document.elementFromPoint(e.clientX, e.clientY);
       drag.clone.style.visibility = "";
-      // Check for tab drop target (only To Try tab accepts drops from other tabs)
+      // Check for tab drop target (To Try and Podcasts tabs accept drops)
       var tab = el && el.closest(".tab[data-tab]");
-      if (tab && tab.dataset.tab === "totry" && drag.source === "pke") {
+      if (tab && (tab.dataset.tab === "totry" || tab.dataset.tab === "podcasts") && drag.source === "pke") {
         tab.classList.add("drag-target");
-        drag.targetTab = "totry";
+        drag.targetTab = tab.dataset.tab;
         drag.targetStatus = null;
       } else {
         drag.targetTab = null;
@@ -1753,12 +1753,27 @@
         document.querySelectorAll(".tab.drag-target").forEach(function(t) { t.classList.remove("drag-target"); });
         var el = document.elementFromPoint(e.clientX, e.clientY);
         
-        // Check if dropped on To Try tab
+        // Check if dropped on a tab (To Try or Podcasts)
         var tab = el && el.closest(".tab[data-tab]");
         if (tab && tab.dataset.tab === "totry" && drag.source === "pke") {
           var item = state.items.find(function(i) { return i.id === drag.id; });
           if (item && item.status !== "to_try") {
             updateStatus(drag.id, "to_try");
+          }
+        } else if (tab && tab.dataset.tab === "podcasts" && drag.source === "pke") {
+          var item = state.items.find(function(i) { return i.id === drag.id; });
+          if (item && item.url) {
+            // Check if URL looks like a podcast (YouTube or Spotify)
+            var url = item.url;
+            var isYouTube = /youtube\.com\/watch|youtu\.be\//.test(url);
+            var isSpotify = /open\.spotify\.com\/episode/.test(url);
+            if (isYouTube || isSpotify) {
+              state.podcastInputUrl = url;
+              switchTab("podcasts");
+              setTimeout(function() { submitPodcastUrl(); }, 100);
+            } else {
+              alert("This URL doesn't look like a YouTube or Spotify podcast. Only YouTube videos and Spotify episodes can be analyzed.");
+            }
           }
         } else {
           var col = el && el.closest(".column");
