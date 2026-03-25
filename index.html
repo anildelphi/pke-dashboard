@@ -1747,10 +1747,13 @@
 
     document.addEventListener("mousemove", function(e) {
       if (!drag) return;
+      e.preventDefault(); // Prevent text selection early
       if (!drag.active) {
         if (Math.abs(e.clientX - drag.startX) < 5 && Math.abs(e.clientY - drag.startY) < 5) return;
         drag.active = true;
         drag.card.classList.add("dragging");
+        document.body.style.userSelect = "none"; // Disable text selection while dragging
+        document.body.style.webkitUserSelect = "none";
         var rect = drag.card.getBoundingClientRect();
         var clone = drag.card.cloneNode(true);
         clone.style.cssText = "position:fixed;width:" + rect.width + "px;pointer-events:none;z-index:9999;opacity:0.85;transform:rotate(2deg) scale(1.02);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:14px 16px;";
@@ -1759,7 +1762,6 @@
         drag.offsetX = e.clientX - rect.left;
         drag.offsetY = e.clientY - rect.top;
       }
-      e.preventDefault();
       drag.clone.style.left = (e.clientX - drag.offsetX) + "px";
       drag.clone.style.top = (e.clientY - drag.offsetY) + "px";
       document.querySelectorAll(".column.drag-over").forEach(function(c) { c.classList.remove("drag-over"); });
@@ -1787,6 +1789,9 @@
     document.addEventListener("mouseup", function(e) {
       if (!drag) return;
       if (drag.active) {
+        // Re-enable text selection
+        document.body.style.userSelect = "";
+        document.body.style.webkitUserSelect = "";
         if (drag.clone) {
           drag.clone.style.visibility = "hidden";
           drag.clone.remove();
