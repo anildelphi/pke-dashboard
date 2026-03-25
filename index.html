@@ -1500,9 +1500,8 @@
           <div class="cat-filters">
             ${TO_TRY_CATEGORIES.map(c => {
               const count = state.items.filter(i => i.status === "to_try" && (c.key === "all" || i.category === c.key)).length;
-              if (c.key !== "all" && count === 0) return "";
               return `
-              <button class="cat-btn ${state.toTryCategory === c.key ? "active" : ""}" style="${state.toTryCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.toTryCategory='${c.key}';render()">
+              <button class="cat-btn ${state.toTryCategory === c.key ? "active" : ""}" style="${state.toTryCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}${count === 0 && c.key !== "all" ? ";opacity:0.5" : ""}" onclick="state.toTryCategory='${c.key}';render()">
                 ${c.label}${c.key !== "all" ? `<span class="count">${count}</span>` : ""}
               </button>`;
             }).join("")}
