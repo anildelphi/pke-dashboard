@@ -212,7 +212,7 @@
     const STATUSES = [
       { key: "to_read", label: "To Read", icon: "◎", color: "#60a5fa" },
       { key: "delphi", label: "Delphi", icon: "△", color: "#c084fc" },
-      { key: "digested", label: "Digested", icon: "✓", color: "#34d399" },
+      { key: "to_watch", label: "To Watch", icon: "▶", color: "#f472b6" },
       { key: "archived", label: "Archived", icon: "▪", color: "#6b7280" },
     ];
 
@@ -1145,7 +1145,6 @@
       return `
         <div class="card" data-id="${item.id}" style="border-left:3px solid ${cat.color}" onclick="cardClick('${item.id}')">
           <div class="card-quick">
-            <button class="qk-done" title="Digested" onclick="event.stopPropagation();updateStatus('${item.id}','digested')">✓</button>
             <button class="qk-del" title="Delete" onclick="event.stopPropagation();deleteItem('${item.id}')">✕</button>
           </div>
           <div class="card-top">
