@@ -1695,7 +1695,7 @@
           <div class="cat-filters">
             ${CATEGORIES.filter(c => c.key === "all" || usedCats.has(c.key)).map(c => `
               <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
-                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key).length}</span>` : ""}
+                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key && i.status !== "to_try" && i.status !== "meeting" && !(i.tags || []).includes("meeting")).length}</span>` : ""}
               </button>
             `).join("")}
           </div>
