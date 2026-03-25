@@ -244,6 +244,18 @@
       { key: "uncategorized", label: "Uncategorized", color: "#6b7280" },
     ];
 
+    // Separate categories for To Try tab (tools/products)
+    const TO_TRY_CATEGORIES = [
+      { key: "all", label: "All", color: "#94a3b8" },
+      { key: "claude_code", label: "Claude Code", color: "#a78bfa" },
+      { key: "openclaw", label: "OpenClaw", color: "#fb923c" },
+      { key: "skills", label: "Skills", color: "#34d399" },
+      { key: "design", label: "Design", color: "#f472b6" },
+      { key: "marketing", label: "Marketing", color: "#60a5fa" },
+      { key: "dev_tools", label: "Dev Tools", color: "#22d3ee" },
+      { key: "other", label: "Other", color: "#6b7280" },
+    ];
+
     const SOURCE_ICONS = {
       article: "📄", podcast: "🎙️", tweet: "🐦", thread: "🧵",
       video: "🎬", paper: "📑", book: "📚", note: "📝",
@@ -1486,11 +1498,14 @@
           </div>
 
           <div class="cat-filters">
-            ${CATEGORIES.filter(c => c.key === "all" || tryUsedCats.has(c.key)).map(c => `
+            ${TO_TRY_CATEGORIES.map(c => {
+              const count = state.items.filter(i => i.status === "to_try" && (c.key === "all" || i.category === c.key)).length;
+              if (c.key !== "all" && count === 0) return "";
+              return `
               <button class="cat-btn ${state.toTryCategory === c.key ? "active" : ""}" style="${state.toTryCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.toTryCategory='${c.key}';render()">
-                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.status === "to_try" && i.category === c.key).length}</span>` : ""}
-              </button>
-            `).join("")}
+                ${c.label}${c.key !== "all" ? `<span class="count">${count}</span>` : ""}
+              </button>`;
+            }).join("")}
           </div>
 
           ${state.error ? `<div class="error-bar mono">⚠ ${esc(state.error)}<button onclick="fetchItems()">retry</button></div>` : ""}
