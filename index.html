@@ -1194,6 +1194,7 @@
             <div class="card-actions">
               <span class="label mono">Move →</span>
               ${moves}
+              ${item.status !== "to_try" ? `<button class="move-btn mono" style="color:#fbbf24;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);" onclick="event.stopPropagation();updateStatus('${item.id}','to_try')">★ To Try</button>` : ""}
               <button class="delete-btn mono" onclick="event.stopPropagation();deleteItem('${item.id}')">✕ Delete</button>
             </div>
           </div>`;
@@ -1800,8 +1801,10 @@
 
     function cardClick(id) {
       if (justDragged) return;
+      saveScrollPositions();
       state.expandedId = state.expandedId === id ? null : id;
       render();
+      restoreScrollPositions();
     }
 
     // Prevent native browser drag (links/images inside cards steal mouse events)
