@@ -258,6 +258,8 @@
       viewMode: "kanban",
       searchQuery: "",
       expandedId: null,
+      editingId: null,
+      editingTitle: "",
       trelloLists: [],
       trelloCards: [],
       trelloLoading: false,
@@ -387,6 +389,44 @@
       render();
       restoreScrollPositions();
       try { await supaFetch("content_items?id=eq." + id, { method: "DELETE" }); } catch (e) { fetchItems(); }
+    }
+
+    function startEditTitle(id, currentTitle) {
+      state.editingId = id;
+      state.editingTitle = currentTitle;
+      render();
+      setTimeout(() => {
+        const input = document.querySelector('.title-edit-input');
+        if (input) { input.focus(); input.select(); }
+      }, 0);
+    }
+
+    function cancelEditTitle() {
+      state.editingId = null;
+      state.editingTitle = "";
+      render();
+    }
+
+    async function saveTitle(id) {
+      const newTitle = state.editingTitle.trim();
+      if (!newTitle) return cancelEditTitle();
+      saveScrollPositions();
+      state.items = state.items.map(i => i.id === id ? { ...i, title: newTitle } : i);
+      state.editingId = null;
+      state.editingTitle = "";
+      render();
+      restoreScrollPositions();
+      try {
+        await supaFetch("content_items?id=eq." + id, {
+          method: "PATCH",
+          body: JSON.stringify({ title: newTitle }),
+        });
+      } catch (e) { fetchItems(); }
+    }
+
+    function handleTitleKeydown(e, id) {
+      if (e.key === "Enter") { e.preventDefault(); saveTitle(id); }
+      if (e.key === "Escape") { e.preventDefault(); cancelEditTitle(); }
     }
 
     async function trelloFetch(path, opts = {}) {
@@ -1159,6 +1199,23 @@
           </div>`;
       }
 
+      const isEditing = state.editingId === item.id;
+      
+      let titleHtml;
+      if (isEditing) {
+        titleHtml = `<input type="text" class="title-edit-input" value="${esc(state.editingTitle)}" 
+          oninput="state.editingTitle=this.value" 
+          onkeydown="handleTitleKeydown(event,'${item.id}')"
+          onblur="saveTitle('${item.id}')"
+          onclick="event.stopPropagation()"
+          style="width:100%;padding:4px 8px;font-size:inherit;font-weight:inherit;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:#e2e8f0;outline:none;">`;
+      } else if (expanded) {
+        titleHtml = `<span class="editable-title" onclick="event.stopPropagation();startEditTitle('${item.id}',${JSON.stringify(item.title)})" title="Click to edit" style="cursor:text;border-bottom:1px dashed rgba(255,255,255,0.3);">${esc(item.title)}</span>
+          ${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" draggable="false" onclick="event.stopPropagation()" style="margin-left:8px;font-size:12px;color:#60a5fa;">↗</a>` : ""}`;
+      } else {
+        titleHtml = item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" draggable="false" onclick="event.stopPropagation()">${esc(item.title)}</a>` : esc(item.title);
+      }
+
       return `
         <div class="card" data-id="${item.id}" style="border-left:3px solid ${cat.color}" onclick="cardClick('${item.id}')">
           <div class="card-quick">
@@ -1168,7 +1225,7 @@
             <span class="card-icon">${icon}</span>
             <div class="card-content">
               <div class="card-title ${expanded ? "expanded" : ""}">
-                ${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener" draggable="false" onclick="event.stopPropagation()">${esc(item.title)}</a>` : esc(item.title)}
+                ${titleHtml}
               </div>
               <div class="card-meta">
                 <span class="card-cat mono" style="color:${cat.color};background:${cat.color}18">${item.category}</span>
