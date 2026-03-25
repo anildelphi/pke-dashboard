@@ -347,9 +347,13 @@
     }
 
     async function fetchItems() {
+      saveScrollPositions();
       try {
-        state.loading = true;
-        render();
+        // Only show loading spinner on initial load
+        if (state.items.length === 0) {
+          state.loading = true;
+          render();
+        }
         const data = await supaFetch("content_items?select=*&order=created_at.desc&limit=500");
         state.items = data || [];
         state.error = null;
@@ -358,6 +362,7 @@
       } finally {
         state.loading = false;
         render();
+        restoreScrollPositions();
       }
     }
 
@@ -393,9 +398,12 @@
     }
 
     async function fetchTrelloBoard() {
+      saveScrollPositions();
       try {
-        state.trelloLoading = true;
-        render();
+        if (state.trelloCards.length === 0) {
+          state.trelloLoading = true;
+          render();
+        }
         const [lists, cards] = await Promise.all([
           trelloFetch("boards/" + TRELLO_BOARD_ID + "/lists?filter=open"),
           trelloFetch("boards/" + TRELLO_BOARD_ID + "/cards?filter=open&fields=name,desc,labels,due,dueComplete,idList,pos,closed"),
@@ -411,6 +419,7 @@
       } finally {
         state.trelloLoading = false;
         render();
+        restoreScrollPositions();
       }
     }
 
@@ -493,9 +502,12 @@
     // ── Podcast functions ──
 
     async function fetchPodcasts() {
+      saveScrollPositions();
       try {
-        state.podcastLoading = true;
-        render();
+        if (state.podcastItems.length === 0) {
+          state.podcastLoading = true;
+          render();
+        }
         const data = await supaFetch("podcasts?select=*&order=created_at.desc&limit=100");
         state.podcastItems = data || [];
         state.podcastError = null;
@@ -504,6 +516,7 @@
       } finally {
         state.podcastLoading = false;
         render();
+        restoreScrollPositions();
       }
       const processing = state.podcastItems.filter(p => p.status === "processing" || p.status === "transcribing");
       if (processing.length > 0) {
@@ -692,9 +705,12 @@
     // ─── Knowledge Base ───────────────────────────────────────
 
     async function fetchKBItems() {
+      saveScrollPositions();
       try {
-        state.kbLoading = true;
-        render();
+        if (state.kbItems.length === 0) {
+          state.kbLoading = true;
+          render();
+        }
         // Fetch from both tables in parallel since we may not have the view yet
         const [contentData, podcastData] = await Promise.all([
           supaFetch("content_items?select=id,title,url,summary,category,source_type,status,tags,key_takeaways,quotes,created_at&order=created_at.desc&limit=500"),
@@ -730,6 +746,7 @@
       } finally {
         state.kbLoading = false;
         render();
+        restoreScrollPositions();
       }
       // Also fetch latest digest in background
       fetchKBDigest();
