@@ -311,8 +311,8 @@
     }
     
     function restoreScrollPositions() {
-      requestAnimationFrame(() => {
-        if (savedScrollPositions.window) {
+      const restore = () => {
+        if (savedScrollPositions.window !== undefined) {
           window.scrollTo(0, savedScrollPositions.window);
         }
         document.querySelectorAll('.column-body').forEach(col => {
@@ -321,7 +321,9 @@
             col.scrollTop = savedScrollPositions.columns[status];
           }
         });
-      });
+      };
+      // Restore after paint - setTimeout is more reliable than RAF for innerHTML updates
+      setTimeout(restore, 0);
     }
 
     function timeAgo(dateStr) {
