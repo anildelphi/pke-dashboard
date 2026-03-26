@@ -1449,9 +1449,9 @@
               </div>
               
               <div style="margin-bottom:12px">
-                <div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">📅 Filter by Meeting ${state.selectedMeetingFilters.length > 0 ? `<span style="color:#818cf8;font-weight:normal;cursor:pointer" onclick="state.selectedMeetingFilters = []; render();">(clear)</span>` : ''}</div>
+                <div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">📅 Recent Meetings ${state.selectedMeetingFilters.length > 0 ? `<span style="color:#818cf8;font-weight:normal;cursor:pointer" onclick="state.selectedMeetingFilters = []; render();">(clear filter)</span>` : '<span style="color:#64748b;font-weight:normal">(click to filter)</span>'}</div>
                 <div style="display:flex;flex-wrap:wrap;gap:6px">
-                  ${meetingSummaries.map(m => {
+                  ${meetingSummaries.slice(0, 8).map(m => {
                     const isSelected = state.selectedMeetingFilters.includes(m.title);
                     return `<div onclick="if(state.selectedMeetingFilters.includes('${esc(m.title.replace(/'/g, "\\'"))}')) { state.selectedMeetingFilters = state.selectedMeetingFilters.filter(x => x !== '${esc(m.title.replace(/'/g, "\\'"))}'); } else { state.selectedMeetingFilters.push('${esc(m.title.replace(/'/g, "\\'"))}'); } render();" style="background:${isSelected ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.2)'};border:1px solid ${isSelected ? '#818cf8' : 'transparent'};border-radius:4px;padding:5px 10px;font-size:11px;color:${isSelected ? '#c7d2fe' : '#cbd5e1'};cursor:pointer;transition:all 0.15s">${esc(m.title.slice(0, 25))}${m.title.length > 25 ? '...' : ''}</div>`;
                   }).join('')}
