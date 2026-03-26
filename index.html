@@ -272,14 +272,13 @@
 
     // Separate categories for To Try tab (tools/products)
     const TO_TRY_CATEGORIES = [
-      { key: "all", label: "All", color: "#94a3b8" },
-      { key: "claude_code", label: "Claude Code", color: "#a78bfa" },
-      { key: "openclaw", label: "OpenClaw", color: "#fb923c" },
-      { key: "skills", label: "Skills", color: "#34d399" },
-      { key: "design", label: "Design", color: "#f472b6" },
-      { key: "marketing", label: "Marketing", color: "#60a5fa" },
-      { key: "dev_tools", label: "Dev Tools", color: "#22d3ee" },
-      { key: "other", label: "Other", color: "#6b7280" },
+      { key: "all", label: "All", color: "#94a3b8", match: () => true },
+      { key: "claude", label: "Claude Code", color: "#a78bfa", match: (i) => /claude/i.test(i.title) || (i.tags || []).some(t => /claude/i.test(t)) },
+      { key: "openclaw", label: "OpenClaw", color: "#fb923c", match: (i) => /openclaw|clawdbot/i.test(i.title) || (i.tags || []).some(t => /openclaw|try:openclaw/i.test(t)) },
+      { key: "skills", label: "Skills", color: "#34d399", match: (i) => /skill/i.test(i.title) || (i.tags || []).some(t => /skill|mcp/i.test(t)) },
+      { key: "agents", label: "Agents", color: "#f472b6", match: (i) => /agent/i.test(i.title) || (i.tags || []).some(t => /agent/i.test(t)) },
+      { key: "marketing", label: "Marketing", color: "#60a5fa", match: (i) => /marketing|content|social|twitter|growth/i.test(i.title) || (i.tags || []).some(t => /marketing|content|social|growth/i.test(t)) },
+      { key: "tools", label: "Tools", color: "#22d3ee", match: (i) => /tool/i.test(i.title) || (i.tags || []).some(t => /tool/i.test(t)) },
     ];
 
     const SOURCE_ICONS = {
@@ -1169,7 +1168,9 @@
     function getFilteredToTry() {
       return state.items.filter(item => {
         if (item.status !== "to_try") return false;
-        const catOk = state.toTryCategory === "all" || item.category === state.toTryCategory;
+        // Use match function from category definition
+        const catDef = TO_TRY_CATEGORIES.find(c => c.key === state.toTryCategory);
+        const catOk = catDef ? catDef.match(item) : true;
         const q = state.toTrySearchQuery.toLowerCase();
         const searchOk = !q || (item.title || "").toLowerCase().includes(q)
           || (item.summary || "").toLowerCase().includes(q)
@@ -1706,7 +1707,7 @@
 
           <div class="cat-filters">
             ${TO_TRY_CATEGORIES.map(c => {
-              const count = state.items.filter(i => i.status === "to_try" && (c.key === "all" || i.category === c.key)).length;
+              const count = state.items.filter(i => i.status === "to_try" && c.match(i)).length;
               return `
               <button class="cat-btn ${state.toTryCategory === c.key ? "active" : ""}" style="${state.toTryCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}${count === 0 && c.key !== "all" ? ";opacity:0.5" : ""}" onclick="state.toTryCategory='${c.key}';render()">
                 ${c.label}${c.key !== "all" ? `<span class="count">${count}</span>` : ""}
