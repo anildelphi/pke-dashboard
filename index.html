@@ -1858,20 +1858,19 @@
 
           <div style="margin-bottom:16px;display:flex;gap:8px;">
             <div style="flex:1;position:relative">
-              <input type="text" class="mono" placeholder="Ask your knowledge base... e.g. 'what did Huberman say about dopamine?'"
+              <input type="text" id="kb-search-input" class="mono" placeholder="Ask your knowledge base... e.g. 'what did Huberman say about dopamine?'"
                 value="${esc(state.kbSearchQuery)}"
-                oninput="state.kbSearchQuery=this.value;if(!this.value){clearKBSearch()}else{render()}"
+                oninput="state.kbSearchQuery=this.value"
                 onkeydown="if(event.key==='Enter'&&this.value.trim())searchKB()"
+                onblur="render()"
                 style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(167,139,250,0.3);border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:13px;outline:none;font-family:'IBM Plex Mono',monospace;"
               />
             </div>
-            ${state.kbSearchQuery.trim() ? `
-              <button class="btn" onclick="searchKB()" ${state.kbAISearching ? "disabled" : ""}
-                style="padding:10px 20px;${state.kbAISearching ? "opacity:0.5;cursor:wait;" : ""}background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.3)">
-                ${state.kbAISearching ? "⏳ Searching..." : "🔍 Ask AI"}
-              </button>
-              ${state.kbAIAnswer ? `<button class="btn" onclick="clearKBSearch()" style="padding:10px 14px;font-size:11px">✕ Clear</button>` : ""}
-            ` : ""}
+            <button class="btn" onclick="state.kbSearchQuery=document.getElementById('kb-search-input').value;searchKB()" ${state.kbAISearching ? "disabled" : ""}
+              style="padding:10px 20px;${state.kbAISearching ? "opacity:0.5;cursor:wait;" : ""}background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.3)">
+              ${state.kbAISearching ? "⏳ Searching..." : "🔍 Ask AI"}
+            </button>
+            ${state.kbAIAnswer ? `<button class="btn" onclick="clearKBSearch()" style="padding:10px 14px;font-size:11px">✕ Clear</button>` : ""}
           </div>
 
           ${state.kbAIAnswer ? `
