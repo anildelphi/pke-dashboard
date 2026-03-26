@@ -1408,25 +1408,35 @@
               const meetingSummary = (item.summary && item.summary.trim()) || item.description || "";
               const hasSummary = meetingSummary.trim().length > 0;
               
-              // Use key_takeaways from database if available, otherwise extract from summary
+              // Use key_takeaways from database if available, otherwise extract from content
               let todos = [];
               if (item.key_takeaways && Array.isArray(item.key_takeaways) && item.key_takeaways.length > 0) {
                 todos = item.key_takeaways.filter(t => t && t.length > 3);
-              } else if (hasSummary) {
-                // Smart extraction: find action-oriented bullet points from summary
-                const actionPatterns = /(?:need(?:s|ed)? to|should|will|must|plan(?:ning)? to|going to|want(?:s|ed)? to|follow[- ]?up|reach out|send|schedule|set up|explore|consider|review|finalize|contact|email|call|meet with|discuss|prepare|create|build|launch|test|implement|prioritize|decide|confirm)/i;
-                const lines = meetingSummary.split('\n');
-                lines.forEach(line => {
-                  const trimmed = line.replace(/^[\s\-•*]+/, '').trim();
-                  if (trimmed.length > 10 && trimmed.length < 200 && actionPatterns.test(trimmed)) {
-                    // Avoid duplicates and headers
-                    if (!trimmed.startsWith('#') && !todos.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
-                      todos.push(trimmed);
+              } else {
+                // Smart extraction from summary AND raw_content (transcript)
+                const actionPatterns = /\b(?:need(?:s|ed)? to|should|let'?s|we(?:'ll| will| should| need to)|I(?:'ll| will| need to)|going to|want(?:s|ed)? to|follow[- ]?up|reach out|send|schedule|set up|look into|explore|consider|review|finalize|contact|email|call|meet with|discuss|prepare|create|build|launch|test|implement|prioritize|decide|confirm|check out|try|investigate|research|connect with|intro(?:duce)?|share|draft|write|update|sync|circle back)\b/i;
+                
+                // Check summary first, then raw_content
+                const textSources = [meetingSummary, item.raw_content || ''].filter(t => t);
+                
+                textSources.forEach(text => {
+                  if (todos.length >= 8) return;
+                  const lines = text.split(/[\n.!?]+/);
+                  lines.forEach(line => {
+                    if (todos.length >= 8) return;
+                    const trimmed = line.replace(/^[\s\-•*]+/, '').trim();
+                    // Must be action-oriented, reasonable length, and not a header
+                    if (trimmed.length > 15 && trimmed.length < 150 && actionPatterns.test(trimmed)) {
+                      if (!trimmed.startsWith('#') && !trimmed.match(/^(Me|Them|Speaker):/i)) {
+                        // Clean up and avoid duplicates
+                        const clean = trimmed.replace(/^(Me|Them|Speaker)[:\s]+/i, '').trim();
+                        if (clean.length > 15 && !todos.some(t => t.toLowerCase().includes(clean.toLowerCase().slice(0, 30)))) {
+                          todos.push(clean);
+                        }
+                      }
                     }
-                  }
+                  });
                 });
-                // Limit to top 8 action items
-                todos = todos.slice(0, 8);
               }
               
               // Use referenced_people from database if available
