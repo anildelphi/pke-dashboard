@@ -1403,19 +1403,12 @@
 
             let detail = "";
             if (expanded) {
-              const fullNotes = item.raw_content || item.description || "";
+              // Use summary OR raw_content, whichever has content
+              const fullNotes = (item.raw_content && item.raw_content.trim()) || item.summary || item.description || "";
               const hasFullNotes = fullNotes.trim().length > 0;
               
               // Extract action items / to-dos
-              const todoPatterns = [
-                /[-•*]\s*\[[\sx]\]\s*(.+)/gi,           // - [ ] or - [x] checkbox
-                /(?:TODO|TO DO|TO-DO|Action|Follow[- ]?up)[:.]?\s*(.+)/gi,
-                /[-•*]\s*(?:Need to|Should|Must|Will|Have to)\s+(.+)/gi,
-                /(?:^|\n)(?:Action items?|To do|Tasks?|Follow[- ]?ups?|Next steps?)[:.\s]*\n([\s\S]*?)(?=\n\n|\n[A-Z]|$)/gi
-              ];
-              
               let todos = [];
-              let notesWithoutTodos = fullNotes;
               
               // Extract checklist items
               const checklistMatch = fullNotes.match(/[-•*]\s*\[[\sx]?\]\s*.+/gi);
@@ -1426,21 +1419,35 @@
                 });
               }
               
-              // Extract "Action:" or "TODO:" lines
-              const actionMatch = fullNotes.match(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*[^\n]+/gi);
+              // Extract "Action:" or "TODO:" or "Follow-up:" lines
+              const actionMatch = fullNotes.match(/(?:TODO|Action|Follow[- ]?up|Next step)s?[:.]?\s*[^\n]+/gi);
               if (actionMatch) {
                 actionMatch.forEach(m => {
-                  const text = m.replace(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*/i, '').trim();
+                  const text = m.replace(/(?:TODO|Action|Follow[- ]?up|Next step)s?[:.]?\s*/i, '').trim();
                   if (text.length > 3 && !todos.includes(text)) todos.push(text);
+                });
+              }
+              
+              // Look for "Action Items" or "Next Steps" sections
+              const sectionMatch = fullNotes.match(/(?:Action Items?|Next Steps?|To-?Dos?|Follow[- ]?ups?)[\s:]*\n((?:[-•*]\s*.+\n?)+)/gi);
+              if (sectionMatch) {
+                sectionMatch.forEach(section => {
+                  const items = section.match(/[-•*]\s*[^\n]+/g);
+                  if (items) {
+                    items.forEach(item => {
+                      const text = item.replace(/^[-•*]\s*/, '').trim();
+                      if (text.length > 3 && !todos.includes(text)) todos.push(text);
+                    });
+                  }
                 });
               }
               
               // Extract decisions
               let decisions = [];
-              const decisionMatch = fullNotes.match(/(?:Decided|Decision|Agreed|Conclusion)[:.]?\s*[^\n]+/gi);
+              const decisionMatch = fullNotes.match(/(?:Decided|Decision|Agreed|Conclusion|Key takeaway)s?[:.]?\s*[^\n]+/gi);
               if (decisionMatch) {
                 decisionMatch.forEach(m => {
-                  const text = m.replace(/(?:Decided|Decision|Agreed|Conclusion)[:.]?\s*/i, '').trim();
+                  const text = m.replace(/(?:Decided|Decision|Agreed|Conclusion|Key takeaway)s?[:.]?\s*/i, '').trim();
                   if (text.length > 3 && !decisions.includes(text)) decisions.push(text);
                 });
               }
@@ -1453,26 +1460,28 @@
                 attendees = names;
               }
               
-              // Format remaining notes nicely
-              let cleanNotes = fullNotes
-                .replace(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*[^\n]+\n?/gi, '')
-                .replace(/[-•*]\s*\[[\sx]?\]\s*[^\n]+\n?/gi, '')
-                .trim();
+              // Format notes with markdown-like structure
+              function formatMeetingNotes(text) {
+                return esc(text)
+                  // Headers
+                  .replace(/^### (.+)$/gm, '<h4 style="color:#f8fafc;font-size:14px;margin:16px 0 8px 0;font-weight:600">$1</h4>')
+                  .replace(/^## (.+)$/gm, '<h3 style="color:#f8fafc;font-size:15px;margin:18px 0 10px 0;font-weight:600">$1</h3>')
+                  // Bold
+                  .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#f8fafc">$1</strong>')
+                  // Bullet points - make them look nicer
+                  .replace(/^[-•*]\s+(.+)$/gm, '<div style="padding-left:16px;margin:4px 0;position:relative"><span style="position:absolute;left:0;color:#64748b">•</span>$1</div>')
+                  // Nested bullets
+                  .replace(/^(\s{2,})[-•*]\s+(.+)$/gm, '<div style="padding-left:32px;margin:3px 0;position:relative"><span style="position:absolute;left:16px;color:#475569">◦</span>$2</div>')
+                  // Paragraphs
+                  .replace(/\n\n+/g, '</p><p style="margin:12px 0">')
+                  .replace(/\n/g, '<br>')
+                  .replace(/^/, '<p style="margin:12px 0">').replace(/$/, '</p>');
+              }
               
-              const formattedNotes = esc(cleanNotes)
-                .replace(/\n\n+/g, '</p><p>')
-                .replace(/\n/g, '<br>')
-                .replace(/^/, '<p>').replace(/$/, '</p>');
+              const formattedNotes = formatMeetingNotes(fullNotes);
               
               detail = `
                 <div class="card-detail" onclick="event.stopPropagation()">
-                  ${item.summary ? `
-                    <div class="meeting-section">
-                      <div class="meeting-section-title">📝 Summary</div>
-                      <div class="card-summary">${esc(item.summary)}</div>
-                    </div>
-                  ` : ''}
-                  
                   ${attendees.length > 0 ? `
                     <div class="meeting-section">
                       <div class="meeting-section-title">👥 Attendees</div>
@@ -1484,28 +1493,28 @@
                   
                   ${todos.length > 0 ? `
                     <div class="meeting-todos">
-                      <h4>🔴 Action Items</h4>
+                      <h4>🔴 Action Items (${todos.length})</h4>
                       <ul>
-                        ${todos.slice(0, 10).map(t => `<li>${esc(t)}</li>`).join('')}
+                        ${todos.slice(0, 15).map(t => `<li>${esc(t)}</li>`).join('')}
                       </ul>
                     </div>
                   ` : ''}
                   
                   ${decisions.length > 0 ? `
                     <div class="meeting-decisions">
-                      <h4>✅ Decisions</h4>
+                      <h4>✅ Key Decisions</h4>
                       <ul>
-                        ${decisions.slice(0, 5).map(d => `<li>${esc(d)}</li>`).join('')}
+                        ${decisions.slice(0, 8).map(d => `<li>${esc(d)}</li>`).join('')}
                       </ul>
                     </div>
                   ` : ''}
                   
-                  ${hasFullNotes && cleanNotes.length > 0 ? `
+                  ${hasFullNotes ? `
                     <div class="meeting-section">
-                      <div class="meeting-section-title">📋 Notes</div>
+                      <div class="meeting-section-title">📋 Full Notes</div>
                       <div class="meeting-notes">${formattedNotes}</div>
                     </div>
-                  ` : (!item.summary ? '<div class="card-no-summary">No notes available yet</div>' : '')}
+                  ` : '<div class="card-no-summary">No notes available yet</div>'}
                   
                   ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open in Browser</a>` : ""}
                   <div class="card-actions">
