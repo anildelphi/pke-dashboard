@@ -1592,11 +1592,11 @@
             // Generate preview: first 1-2 sentences from summary
             let preview = '';
             if (item.summary && !expanded) {
-              // Extract first meaningful line (skip headers)
-              const lines = item.summary.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
-              const previewText = lines.slice(0, 2).join(' ').replace(/^[-•*]\s*/, '').trim();
+              // Extract first meaningful lines (skip headers)
+              const lines = item.summary.split('\n').filter(l => l.trim() && !l.trim().startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '').trim());
+              const previewText = lines.slice(0, 3).join(' • ');
               if (previewText.length > 0) {
-                preview = previewText.length > 120 ? previewText.slice(0, 120) + '...' : previewText;
+                preview = previewText.length > 200 ? previewText.slice(0, 200) + '...' : previewText;
               }
             }
             
