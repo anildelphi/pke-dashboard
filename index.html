@@ -1403,64 +1403,29 @@
 
             let detail = "";
             if (expanded) {
-              // Use summary OR raw_content, whichever has content
-              const fullNotes = (item.raw_content && item.raw_content.trim()) || item.summary || item.description || "";
-              const hasFullNotes = fullNotes.trim().length > 0;
+              // Use summary (AI-formatted) as primary, NOT raw_content (transcript)
+              const meetingSummary = (item.summary && item.summary.trim()) || item.description || "";
+              const hasSummary = meetingSummary.trim().length > 0;
               
-              // Extract action items / to-dos
+              // Use key_takeaways from database if available (properly extracted action items)
               let todos = [];
-              
-              // Extract checklist items
-              const checklistMatch = fullNotes.match(/[-•*]\s*\[[\sx]?\]\s*.+/gi);
-              if (checklistMatch) {
-                checklistMatch.forEach(m => {
-                  const text = m.replace(/[-•*]\s*\[[\sx]?\]\s*/, '').trim();
-                  if (text.length > 3 && !todos.includes(text)) todos.push(text);
-                });
+              if (item.key_takeaways && Array.isArray(item.key_takeaways) && item.key_takeaways.length > 0) {
+                todos = item.key_takeaways.filter(t => t && t.length > 3);
               }
               
-              // Extract "Action:" or "TODO:" or "Follow-up:" lines
-              const actionMatch = fullNotes.match(/(?:TODO|Action|Follow[- ]?up|Next step)s?[:.]?\s*[^\n]+/gi);
-              if (actionMatch) {
-                actionMatch.forEach(m => {
-                  const text = m.replace(/(?:TODO|Action|Follow[- ]?up|Next step)s?[:.]?\s*/i, '').trim();
-                  if (text.length > 3 && !todos.includes(text)) todos.push(text);
-                });
-              }
-              
-              // Look for "Action Items" or "Next Steps" sections
-              const sectionMatch = fullNotes.match(/(?:Action Items?|Next Steps?|To-?Dos?|Follow[- ]?ups?)[\s:]*\n((?:[-•*]\s*.+\n?)+)/gi);
-              if (sectionMatch) {
-                sectionMatch.forEach(section => {
-                  const items = section.match(/[-•*]\s*[^\n]+/g);
-                  if (items) {
-                    items.forEach(item => {
-                      const text = item.replace(/^[-•*]\s*/, '').trim();
-                      if (text.length > 3 && !todos.includes(text)) todos.push(text);
-                    });
-                  }
-                });
-              }
-              
-              // Extract decisions
-              let decisions = [];
-              const decisionMatch = fullNotes.match(/(?:Decided|Decision|Agreed|Conclusion|Key takeaway)s?[:.]?\s*[^\n]+/gi);
-              if (decisionMatch) {
-                decisionMatch.forEach(m => {
-                  const text = m.replace(/(?:Decided|Decision|Agreed|Conclusion|Key takeaway)s?[:.]?\s*/i, '').trim();
-                  if (text.length > 3 && !decisions.includes(text)) decisions.push(text);
-                });
-              }
-              
-              // Extract attendees from common patterns
+              // Use referenced_people from database if available
               let attendees = [];
-              const attendeeMatch = fullNotes.match(/(?:Attendees?|Participants?|Present|With)[:.]?\s*([^\n]+)/i);
-              if (attendeeMatch) {
-                const names = attendeeMatch[1].split(/[,;&]|\band\b/).map(n => n.trim()).filter(n => n.length > 1 && n.length < 40);
-                attendees = names;
+              if (item.referenced_people && Array.isArray(item.referenced_people) && item.referenced_people.length > 0) {
+                attendees = item.referenced_people.filter(p => p && p.length > 1);
               }
               
-              // Format notes with markdown-like structure
+              // Use quotes/decisions from database
+              let decisions = [];
+              if (item.quotes && Array.isArray(item.quotes) && item.quotes.length > 0) {
+                decisions = item.quotes.filter(q => q && q.length > 3);
+              }
+              
+              // Format the summary with markdown-like structure
               function formatMeetingNotes(text) {
                 return esc(text)
                   // Headers
@@ -1468,17 +1433,21 @@
                   .replace(/^## (.+)$/gm, '<h3 style="color:#f8fafc;font-size:15px;margin:18px 0 10px 0;font-weight:600">$1</h3>')
                   // Bold
                   .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#f8fafc">$1</strong>')
-                  // Bullet points - make them look nicer
-                  .replace(/^[-•*]\s+(.+)$/gm, '<div style="padding-left:16px;margin:4px 0;position:relative"><span style="position:absolute;left:0;color:#64748b">•</span>$1</div>')
-                  // Nested bullets
-                  .replace(/^(\s{2,})[-•*]\s+(.+)$/gm, '<div style="padding-left:32px;margin:3px 0;position:relative"><span style="position:absolute;left:16px;color:#475569">◦</span>$2</div>')
+                  // Bullet points with indentation
+                  .replace(/^(\s*)[-•*]\s+(.+)$/gm, (match, indent, content) => {
+                    const level = Math.floor((indent || '').length / 2);
+                    const padding = 16 + (level * 16);
+                    const marker = level > 0 ? '◦' : '•';
+                    const markerColor = level > 0 ? '#475569' : '#64748b';
+                    return `<div style="padding-left:${padding}px;margin:4px 0;position:relative"><span style="position:absolute;left:${padding-16}px;color:${markerColor}">${marker}</span>${content}</div>`;
+                  })
                   // Paragraphs
                   .replace(/\n\n+/g, '</p><p style="margin:12px 0">')
                   .replace(/\n/g, '<br>')
                   .replace(/^/, '<p style="margin:12px 0">').replace(/$/, '</p>');
               }
               
-              const formattedNotes = formatMeetingNotes(fullNotes);
+              const formattedSummary = hasSummary ? formatMeetingNotes(meetingSummary) : '';
               
               detail = `
                 <div class="card-detail" onclick="event.stopPropagation()">
@@ -1509,12 +1478,12 @@
                     </div>
                   ` : ''}
                   
-                  ${hasFullNotes ? `
+                  ${hasSummary ? `
                     <div class="meeting-section">
-                      <div class="meeting-section-title">📋 Full Notes</div>
-                      <div class="meeting-notes">${formattedNotes}</div>
+                      <div class="meeting-section-title">📋 Summary</div>
+                      <div class="meeting-notes">${formattedSummary}</div>
                     </div>
-                  ` : '<div class="card-no-summary">No notes available yet</div>'}
+                  ` : '<div class="card-no-summary">No summary available yet</div>'}
                   
                   ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open in Browser</a>` : ""}
                   <div class="card-actions">
