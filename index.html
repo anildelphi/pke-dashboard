@@ -1389,6 +1389,66 @@
 
       if (state.activeTab === "meetings") {
         const meetingsFiltered = getFilteredMeetings();
+        
+        // Generate weekly summary
+        const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        const recentMeetings = meetingsFiltered.filter(m => new Date(m.created_at).getTime() > oneWeekAgo);
+        const allActionItems = [];
+        const meetingSummaries = [];
+        
+        recentMeetings.forEach(m => {
+          // Collect action items
+          if (m.key_takeaways && Array.isArray(m.key_takeaways)) {
+            m.key_takeaways.forEach(action => {
+              if (action && action.length > 3) {
+                allActionItems.push({ meeting: m.title, action: action });
+              }
+            });
+          }
+          // Collect meeting summaries (first 100 chars of summary)
+          if (m.summary) {
+            const preview = m.summary.replace(/^###?\s*/gm, '').split('\n')[0].slice(0, 80);
+            meetingSummaries.push({ title: m.title, preview: preview, attendees: m.referenced_people || [] });
+          }
+        });
+        
+        let weeklySummaryHtml = '';
+        if (recentMeetings.length > 0) {
+          weeklySummaryHtml = `
+            <div style="background:linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(168,85,247,0.1) 100%);border-radius:10px;padding:16px;margin-bottom:20px;border:1px solid rgba(139,92,246,0.2)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:16px">📊</span>
+                <span style="font-size:13px;font-weight:600;color:#e2e8f0">This Week</span>
+                <span style="font-size:11px;color:#64748b;margin-left:auto">${recentMeetings.length} meeting${recentMeetings.length !== 1 ? 's' : ''}</span>
+              </div>
+              
+              ${allActionItems.length > 0 ? `
+                <div style="margin-bottom:12px">
+                  <div style="font-size:10px;color:#f87171;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">🔴 Action Items (${allActionItems.length})</div>
+                  <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:10px">
+                    ${allActionItems.slice(0, 10).map(item => `
+                      <div style="display:flex;gap:8px;margin-bottom:4px;font-size:11px">
+                        <span style="color:#fca5a5">•</span>
+                        <span style="color:#e2e8f0">${esc(item.action)}</span>
+                        <span style="color:#64748b;font-size:10px;margin-left:auto;white-space:nowrap">${esc(item.meeting.slice(0,20))}${item.meeting.length > 20 ? '...' : ''}</span>
+                      </div>
+                    `).join('')}
+                    ${allActionItems.length > 10 ? `<div style="font-size:10px;color:#64748b;margin-top:6px">+ ${allActionItems.length - 10} more</div>` : ''}
+                  </div>
+                </div>
+              ` : ''}
+              
+              <div>
+                <div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">📅 Recent Meetings</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${meetingSummaries.slice(0, 6).map(m => `
+                    <div style="background:rgba(0,0,0,0.2);border-radius:4px;padding:6px 10px;font-size:11px;color:#cbd5e1">${esc(m.title.slice(0, 25))}${m.title.length > 25 ? '...' : ''}</div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        }
 
         let meetingsContent;
         if (state.loading && state.items.length === 0) {
@@ -1536,6 +1596,7 @@
           </div>
 
           ${state.error ? `<div class="error-bar mono">⚠ ${esc(state.error)}<button onclick="fetchItems()">retry</button></div>` : ""}
+          ${weeklySummaryHtml}
           ${meetingsContent}
         `;
       } else if (state.activeTab === "totry") {
