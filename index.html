@@ -332,6 +332,7 @@
       // Meetings
       meetingsSearchQuery: "",
       meetingsExpandedId: null,
+      actionItemsExpanded: false,
     };
 
     // Scroll position preservation
@@ -1397,20 +1398,44 @@
         const meetingSummaries = [];
         
         recentMeetings.forEach(m => {
-          // Collect action items
+          const meetingAge = Date.now() - new Date(m.created_at).getTime();
+          const daysOld = meetingAge / (24 * 60 * 60 * 1000);
+          
+          // Collect action items with priority scoring
           if (m.key_takeaways && Array.isArray(m.key_takeaways)) {
             m.key_takeaways.forEach(action => {
               if (action && action.length > 3) {
-                allActionItems.push({ meeting: m.title, action: action });
+                // Priority scoring
+                let priority = 50; // base priority
+                const actionLower = action.toLowerCase();
+                
+                // Urgency keywords boost priority
+                if (/\b(urgent|asap|immediately|today|critical)\b/i.test(action)) priority += 40;
+                if (/\b(this week|tomorrow|deadline|due)\b/i.test(action)) priority += 30;
+                if (/\b(send|email|reach out|contact|follow up|schedule)\b/i.test(action)) priority += 20;
+                if (/\b(review|finalize|confirm|decide)\b/i.test(action)) priority += 15;
+                
+                // Meeting type boosts
+                const titleLower = m.title.toLowerCase();
+                if (/exec|strategy|leadership/i.test(titleLower)) priority += 25;
+                if (/investor|partner|client/i.test(titleLower)) priority += 20;
+                
+                // Recency boost (newer meetings = more urgent)
+                priority += Math.max(0, 30 - (daysOld * 5));
+                
+                allActionItems.push({ meeting: m.title, action: action, priority: priority, daysOld: daysOld });
               }
             });
           }
-          // Collect meeting summaries (first 100 chars of summary)
+          // Collect meeting summaries
           if (m.summary) {
             const preview = m.summary.replace(/^###?\s*/gm, '').split('\n')[0].slice(0, 80);
             meetingSummaries.push({ title: m.title, preview: preview, attendees: m.referenced_people || [] });
           }
         });
+        
+        // Sort by priority (highest first)
+        allActionItems.sort((a, b) => b.priority - a.priority);
         
         let weeklySummaryHtml = '';
         if (recentMeetings.length > 0) {
@@ -1424,16 +1449,20 @@
               
               ${allActionItems.length > 0 ? `
                 <div style="margin-bottom:12px">
-                  <div style="font-size:10px;color:#f87171;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">🔴 Action Items (${allActionItems.length})</div>
+                  <div style="font-size:10px;color:#f87171;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">🔴 Action Items (${allActionItems.length}) — sorted by priority</div>
                   <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:10px">
-                    ${allActionItems.slice(0, 10).map(item => `
-                      <div style="display:flex;gap:8px;margin-bottom:4px;font-size:11px">
-                        <span style="color:#fca5a5">•</span>
-                        <span style="color:#e2e8f0">${esc(item.action)}</span>
-                        <span style="color:#64748b;font-size:10px;margin-left:auto;white-space:nowrap">${esc(item.meeting.slice(0,20))}${item.meeting.length > 20 ? '...' : ''}</span>
+                    ${(state.actionItemsExpanded ? allActionItems : allActionItems.slice(0, 10)).map((item, idx) => `
+                      <div style="display:flex;gap:8px;margin-bottom:4px;font-size:11px;align-items:flex-start">
+                        <span style="color:${item.priority >= 80 ? '#ef4444' : item.priority >= 60 ? '#f97316' : '#fca5a5'};font-size:10px">${item.priority >= 80 ? '🔥' : item.priority >= 60 ? '⚡' : '•'}</span>
+                        <span style="color:#e2e8f0;flex:1">${esc(item.action)}</span>
+                        <span style="color:#64748b;font-size:10px;white-space:nowrap">${esc(item.meeting.slice(0,18))}${item.meeting.length > 18 ? '..' : ''}</span>
                       </div>
                     `).join('')}
-                    ${allActionItems.length > 10 ? `<div style="font-size:10px;color:#64748b;margin-top:6px">+ ${allActionItems.length - 10} more</div>` : ''}
+                    ${allActionItems.length > 10 ? `
+                      <div onclick="state.actionItemsExpanded = !state.actionItemsExpanded; render();" style="font-size:11px;color:#818cf8;margin-top:8px;cursor:pointer;text-align:center;padding:4px;border-radius:4px;background:rgba(99,102,241,0.1)">
+                        ${state.actionItemsExpanded ? '▲ Show less' : '▼ Show all ' + allActionItems.length + ' action items'}
+                      </div>
+                    ` : ''}
                   </div>
                 </div>
               ` : ''}
