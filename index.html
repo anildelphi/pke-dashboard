@@ -288,7 +288,7 @@
     };
 
     let state = {
-      activeTab: "readings",
+      activeTab: (function() { try { return localStorage.getItem('pke_active_tab') || "readings"; } catch(e) { return "readings"; } })(),
       items: [],
       loading: true,
       error: null,
@@ -1890,6 +1890,8 @@
 
     function switchTab(tab) {
       state.activeTab = tab;
+      // Persist tab to localStorage so it survives refresh
+      try { localStorage.setItem('pke_active_tab', tab); } catch(e) {}
       if (tab === "todo" && state.trelloCards.length === 0 && !state.trelloLoading) {
         fetchTrelloBoard();
       } else if (tab === "podcasts" && state.podcastItems.length === 0 && !state.podcastLoading) {
