@@ -125,10 +125,35 @@
     .meeting-notes {
       font-size: 13px; color: #cbd5e1; line-height: 1.8; margin-bottom: 14px;
       background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px;
-      border-left: 3px solid rgba(251,191,36,0.4); max-height: 400px; overflow-y: auto;
+      border-left: 3px solid rgba(251,191,36,0.4); max-height: 500px; overflow-y: auto;
     }
     .meeting-notes p { margin-bottom: 12px; }
     .meeting-notes p:last-child { margin-bottom: 0; }
+    .meeting-todos {
+      background: rgba(239,68,68,0.08); border-radius: 8px; padding: 14px 16px;
+      border-left: 3px solid #ef4444; margin-bottom: 14px;
+    }
+    .meeting-todos h4 { font-size: 11px; color: #ef4444; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px 0; font-weight: 600; }
+    .meeting-todos ul { margin: 0; padding-left: 18px; }
+    .meeting-todos li { font-size: 13px; color: #fca5a5; line-height: 1.6; margin: 6px 0; }
+    .meeting-todos li::marker { color: #ef4444; }
+    .meeting-decisions {
+      background: rgba(34,197,94,0.08); border-radius: 8px; padding: 14px 16px;
+      border-left: 3px solid #22c55e; margin-bottom: 14px;
+    }
+    .meeting-decisions h4 { font-size: 11px; color: #22c55e; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px 0; font-weight: 600; }
+    .meeting-decisions ul { margin: 0; padding-left: 18px; }
+    .meeting-decisions li { font-size: 13px; color: #86efac; line-height: 1.6; margin: 6px 0; }
+    .meeting-attendees {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;
+    }
+    .meeting-attendee {
+      background: rgba(96,165,250,0.12); color: #93c5fd; font-size: 11px;
+      padding: 4px 10px; border-radius: 12px; font-family: 'IBM Plex Mono', monospace;
+    }
+    .meeting-section { margin-bottom: 16px; }
+    .meeting-section:last-child { margin-bottom: 0; }
+    .meeting-section-title { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; font-weight: 600; }
     .card-read-link {
       display: inline-block; font-size: 11px; color: #60a5fa; margin-bottom: 12px;
       text-decoration: none; font-family: 'IBM Plex Mono', monospace;
@@ -1381,19 +1406,107 @@
               const fullNotes = item.raw_content || item.description || "";
               const hasFullNotes = fullNotes.trim().length > 0;
               
-              // Format notes: convert newlines to <br>, preserve structure
-              const formattedNotes = esc(fullNotes)
-                .replace(/\n\n/g, '</p><p>')
+              // Extract action items / to-dos
+              const todoPatterns = [
+                /[-•*]\s*\[[\sx]\]\s*(.+)/gi,           // - [ ] or - [x] checkbox
+                /(?:TODO|TO DO|TO-DO|Action|Follow[- ]?up)[:.]?\s*(.+)/gi,
+                /[-•*]\s*(?:Need to|Should|Must|Will|Have to)\s+(.+)/gi,
+                /(?:^|\n)(?:Action items?|To do|Tasks?|Follow[- ]?ups?|Next steps?)[:.\s]*\n([\s\S]*?)(?=\n\n|\n[A-Z]|$)/gi
+              ];
+              
+              let todos = [];
+              let notesWithoutTodos = fullNotes;
+              
+              // Extract checklist items
+              const checklistMatch = fullNotes.match(/[-•*]\s*\[[\sx]?\]\s*.+/gi);
+              if (checklistMatch) {
+                checklistMatch.forEach(m => {
+                  const text = m.replace(/[-•*]\s*\[[\sx]?\]\s*/, '').trim();
+                  if (text.length > 3 && !todos.includes(text)) todos.push(text);
+                });
+              }
+              
+              // Extract "Action:" or "TODO:" lines
+              const actionMatch = fullNotes.match(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*[^\n]+/gi);
+              if (actionMatch) {
+                actionMatch.forEach(m => {
+                  const text = m.replace(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*/i, '').trim();
+                  if (text.length > 3 && !todos.includes(text)) todos.push(text);
+                });
+              }
+              
+              // Extract decisions
+              let decisions = [];
+              const decisionMatch = fullNotes.match(/(?:Decided|Decision|Agreed|Conclusion)[:.]?\s*[^\n]+/gi);
+              if (decisionMatch) {
+                decisionMatch.forEach(m => {
+                  const text = m.replace(/(?:Decided|Decision|Agreed|Conclusion)[:.]?\s*/i, '').trim();
+                  if (text.length > 3 && !decisions.includes(text)) decisions.push(text);
+                });
+              }
+              
+              // Extract attendees from common patterns
+              let attendees = [];
+              const attendeeMatch = fullNotes.match(/(?:Attendees?|Participants?|Present|With)[:.]?\s*([^\n]+)/i);
+              if (attendeeMatch) {
+                const names = attendeeMatch[1].split(/[,;&]|\band\b/).map(n => n.trim()).filter(n => n.length > 1 && n.length < 40);
+                attendees = names;
+              }
+              
+              // Format remaining notes nicely
+              let cleanNotes = fullNotes
+                .replace(/(?:TODO|Action|Follow[- ]?up)[:.]?\s*[^\n]+\n?/gi, '')
+                .replace(/[-•*]\s*\[[\sx]?\]\s*[^\n]+\n?/gi, '')
+                .trim();
+              
+              const formattedNotes = esc(cleanNotes)
+                .replace(/\n\n+/g, '</p><p>')
                 .replace(/\n/g, '<br>')
                 .replace(/^/, '<p>').replace(/$/, '</p>');
               
               detail = `
                 <div class="card-detail" onclick="event.stopPropagation()">
-                  ${item.summary ? `<div class="card-section-label">Summary</div><div class="card-summary">${esc(item.summary)}</div>` : ''}
-                  ${hasFullNotes ? `
-                    <div class="card-section-label" style="margin-top:12px">Full Notes</div>
-                    <div class="meeting-notes">${formattedNotes}</div>
+                  ${item.summary ? `
+                    <div class="meeting-section">
+                      <div class="meeting-section-title">📝 Summary</div>
+                      <div class="card-summary">${esc(item.summary)}</div>
+                    </div>
+                  ` : ''}
+                  
+                  ${attendees.length > 0 ? `
+                    <div class="meeting-section">
+                      <div class="meeting-section-title">👥 Attendees</div>
+                      <div class="meeting-attendees">
+                        ${attendees.map(a => `<span class="meeting-attendee">${esc(a)}</span>`).join('')}
+                      </div>
+                    </div>
+                  ` : ''}
+                  
+                  ${todos.length > 0 ? `
+                    <div class="meeting-todos">
+                      <h4>🔴 Action Items</h4>
+                      <ul>
+                        ${todos.slice(0, 10).map(t => `<li>${esc(t)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                  
+                  ${decisions.length > 0 ? `
+                    <div class="meeting-decisions">
+                      <h4>✅ Decisions</h4>
+                      <ul>
+                        ${decisions.slice(0, 5).map(d => `<li>${esc(d)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                  
+                  ${hasFullNotes && cleanNotes.length > 0 ? `
+                    <div class="meeting-section">
+                      <div class="meeting-section-title">📋 Notes</div>
+                      <div class="meeting-notes">${formattedNotes}</div>
+                    </div>
                   ` : (!item.summary ? '<div class="card-no-summary">No notes available yet</div>' : '')}
+                  
                   ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open in Browser</a>` : ""}
                   <div class="card-actions">
                     <button class="delete-btn mono" onclick="deleteItem('${item.id}')">🗑 delete</button>
