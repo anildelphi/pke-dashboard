@@ -1414,7 +1414,7 @@
                 todos = item.key_takeaways.filter(t => t && t.length > 3);
               } else {
                 // Smart extraction from summary AND raw_content (transcript)
-                const actionPatterns = /\b(?:need(?:s|ed)? to|should|let'?s|we(?:'ll| will| should| need to)|I(?:'ll| will| need to)|going to|want(?:s|ed)? to|follow[- ]?up|reach out|send|schedule|set up|look into|explore|consider|review|finalize|contact|email|call|meet with|discuss|prepare|create|build|launch|test|implement|prioritize|decide|confirm|check out|try|investigate|research|connect with|intro(?:duce)?|share|draft|write|update|sync|circle back)\b/i;
+                const actionPatterns = /\b(?:need(?:s|ed)? to|should|let'?s|we(?:'ll| will| should| need to| can)|I(?:'ll| will| need to)|going to|want(?:s|ed)? to|follow[- ]?up|reach out|send(?:ing)?|schedul(?:e|ed|ing)|set up|look(?:ing)? into|explor(?:e|ing)|consider(?:ing)?|review(?:ing)?|finalize|contact|email|call(?:ing)?|meet(?:ing)? with|discuss|prepar(?:e|ing)|creat(?:e|ing)|build(?:ing)?|launch(?:ing)?|test(?:ing)?|implement|prioritiz(?:e|ing)|decid(?:e|ing)|confirm|check(?:ing)? out|try(?:ing)?|investigat(?:e|ing)|research(?:ing)?|connect(?:ing)? with|intro(?:duc(?:e|ing))?|shar(?:e|ing)|draft(?:ing)?|writ(?:e|ing)|updat(?:e|ing)|sync(?:ing)?|circle back|plann(?:ed|ing)|next step|action item|todo|to-do|upcoming)\b/i;
                 
                 // Check summary first, then raw_content
                 const textSources = [meetingSummary, item.raw_content || ''].filter(t => t);
@@ -1426,11 +1426,11 @@
                     if (todos.length >= 8) return;
                     const trimmed = line.replace(/^[\s\-•*]+/, '').trim();
                     // Must be action-oriented, reasonable length, and not a header
-                    if (trimmed.length > 15 && trimmed.length < 150 && actionPatterns.test(trimmed)) {
+                    if (trimmed.length > 10 && trimmed.length < 200 && actionPatterns.test(trimmed)) {
                       if (!trimmed.startsWith('#') && !trimmed.match(/^(Me|Them|Speaker):/i)) {
                         // Clean up and avoid duplicates
                         const clean = trimmed.replace(/^(Me|Them|Speaker)[:\s]+/i, '').trim();
-                        if (clean.length > 15 && !todos.some(t => t.toLowerCase().includes(clean.toLowerCase().slice(0, 30)))) {
+                        if (clean.length > 10 && !todos.some(t => t.toLowerCase().includes(clean.toLowerCase().slice(0, 25)))) {
                           todos.push(clean);
                         }
                       }
