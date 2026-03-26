@@ -1589,6 +1589,21 @@
                 </div>`;
             }
 
+            // Generate preview: first 1-2 sentences from summary
+            let preview = '';
+            if (item.summary && !expanded) {
+              // Extract first meaningful line (skip headers)
+              const lines = item.summary.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
+              const previewText = lines.slice(0, 2).join(' ').replace(/^[-•*]\s*/, '').trim();
+              if (previewText.length > 0) {
+                preview = previewText.length > 120 ? previewText.slice(0, 120) + '...' : previewText;
+              }
+            }
+            
+            // Get action item count for this meeting
+            const actionCount = (item.key_takeaways || []).filter(t => t && t.length > 3).length;
+            const attendeeCount = (item.referenced_people || []).filter(p => p && p.length > 1).length;
+
             return `
               <div class="card" onclick="state.meetingsExpandedId = state.meetingsExpandedId === '${item.id}' ? null : '${item.id}'; render();">
                 <div class="card-top">
@@ -1598,8 +1613,11 @@
                     <div class="card-meta">
                       <span class="card-cat" style="color:#fbbf24;background:rgba(251,191,36,0.12)">meeting</span>
                       <span class="card-time mono">${timeStr}</span>
+                      ${attendeeCount > 0 ? `<span style="color:#64748b;font-size:10px">👥 ${attendeeCount}</span>` : ''}
+                      ${actionCount > 0 ? `<span style="color:#f87171;font-size:10px">📌 ${actionCount}</span>` : ''}
                     </div>
                     ${tags ? `<div class="card-tags">${tags}</div>` : ""}
+                    ${preview ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4">${esc(preview)}</div>` : ''}
                   </div>
                 </div>
                 ${detail}
