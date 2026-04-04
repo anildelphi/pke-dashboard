@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PKE — Login</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: 'IBM Plex Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-box {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 360px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 24px;
+    }
+    input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #e2e8f0;
+      font-size: 14px;
+      font-family: 'IBM Plex Mono', monospace;
+      outline: none;
+      margin-bottom: 16px;
+    }
+    input:focus {
+      border-color: #60a5fa;
+    }
+    button {
+      width: 100%;
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover {
+      background: #2563eb;
+    }
+    .error {
+      color: #f87171;
+      font-size: 13px;
+      margin-top: 12px;
+      display: none;
+    }
+    .error.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <h1>🧠 PKE</h1>
+    <div class="subtitle">Personal Knowledge Engine</div>
+    <form id="loginForm">
+      <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" autofocus />
+      <button type="submit">Unlock</button>
+    </form>
+    <div class="error" id="error">Incorrect password</div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (res.ok) {
+        window.location.href = '/';
+      } else {
+        document.getElementById('error').classList.add('show');
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
+      }
+    });
+  </script>
+</body>
+</html>
