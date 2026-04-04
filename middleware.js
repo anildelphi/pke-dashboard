@@ -1,20 +1,27 @@
-import { NextResponse } from 'next/server';
-
 const PASSWORD = '9Ldoms0zwH627mfv';
 const COOKIE_NAME = 'pke_auth';
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.png|login).*)'],
+  matcher: ['/((?!api|_next|favicon.png|login).*)'],
 };
 
-export function middleware(request) {
-  const cookie = request.cookies.get(COOKIE_NAME);
+export default function middleware(request) {
+  const url = new URL(request.url);
   
-  if (cookie?.value === PASSWORD) {
-    return NextResponse.next();
+  // Skip login page and API routes
+  if (url.pathname === '/login' || url.pathname.startsWith('/api/')) {
+    return;
   }
   
-  const url = request.nextUrl.clone();
-  url.pathname = '/login';
-  return NextResponse.redirect(url);
+  const cookieHeader = request.headers.get('cookie') || '';
+  const cookies = Object.fromEntries(
+    cookieHeader.split('; ').filter(Boolean).map(c => c.split('='))
+  );
+  
+  if (cookies[COOKIE_NAME] === PASSWORD) {
+    return; // Authenticated
+  }
+  
+  // Redirect to login
+  return Response.redirect(new URL('/login', request.url), 302);
 }
