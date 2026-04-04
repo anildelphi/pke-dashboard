@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <script>
+    // Auth check - redirect to login if not authenticated
+    (function() {
+      const AUTH_KEY = 'pke_authenticated';
+      if (localStorage.getItem(AUTH_KEY) !== 'true') {
+        window.location.href = '/login';
+      }
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PKE — Personal Knowledge Engine</title>
   <link rel="icon" type="image/png" href="/favicon.png" />

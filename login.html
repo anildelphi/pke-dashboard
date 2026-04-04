@@ -88,15 +88,20 @@
     <div class="error" id="error">Incorrect password</div>
   </div>
   <script>
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    const CORRECT_PASSWORD = '9Ldoms0zwH627mfv';
+    const AUTH_KEY = 'pke_authenticated';
+    
+    // If already authenticated, redirect to dashboard
+    if (localStorage.getItem(AUTH_KEY) === 'true') {
+      window.location.href = '/';
+    }
+    
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const password = document.getElementById('password').value;
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
-      if (res.ok) {
+      
+      if (password === CORRECT_PASSWORD) {
+        localStorage.setItem(AUTH_KEY, 'true');
         window.location.href = '/';
       } else {
         document.getElementById('error').classList.add('show');
