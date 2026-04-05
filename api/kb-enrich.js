@@ -1,5 +1,4 @@
-const SUPABASE_URL = "https://kzyubvtsvrwwvmagppho.supabase.co";
-const SUPABASE_KEY = "sb_publishable_k0UKHKu-84br_grFLjOfVQ_w9EjA2kg";
+import { supaFetch } from "./_lib/supabase.js";
 
 const CATEGORIES = ["ai", "crypto", "investing", "health", "personal", "delphi", "media", "music", "culture", "tech", "geopolitics", "uncategorized"];
 
@@ -106,15 +105,4 @@ async function generateEmbedding(apiKey, text) {
   } catch {
     return null;
   }
-}
-
-async function supaFetch(path, opts = {}) {
-  const { headers: extraHeaders, ...restOpts } = opts;
-  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
-    ...restOpts,
-    headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", ...extraHeaders },
-  });
-  if (!res.ok) throw new Error("Supabase error: " + res.status);
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
 }

@@ -2,15 +2,6 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <script>
-    // Auth check - redirect to login if not authenticated
-    (function() {
-      const AUTH_KEY = 'pke_authenticated';
-      if (localStorage.getItem(AUTH_KEY) !== 'true') {
-        window.location.href = '/login';
-      }
-    })();
-  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PKE — Personal Knowledge Engine</title>
   <link rel="icon" type="image/png" href="/favicon.png" />
@@ -206,9 +197,6 @@
   <div class="container" id="app"></div>
 
   <script>
-    const SUPABASE_URL = "https://kzyubvtsvrwwvmagppho.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_k0UKHKu-84br_grFLjOfVQ_w9EjA2kg";
-
     const TRELLO_BOARD_ID = "y70SyMiD";
 
     const STATUSES = [
@@ -348,10 +336,16 @@
     }
 
     async function supaFetch(path, opts = {}) {
-      const { headers: extraHeaders, ...restOpts } = opts;
-      const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
-        ...restOpts,
-        headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", ...extraHeaders },
+      const { headers: extraHeaders, method: rawMethod, body: rawBody, ...restOpts } = opts;
+      const method = rawMethod || "GET";
+      let body = null;
+      if (rawBody) {
+        body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+      }
+      const res = await fetch("/api/supabase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, method, body, headers: extraHeaders || {} }),
       });
       if (!res.ok) throw new Error("Supabase error: " + res.status);
       const text = await res.text();

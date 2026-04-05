@@ -2,6 +2,7 @@
   "name": "pke-dashboard",
   "private": true,
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12"
+    "@distube/ytdl-core": "^4.16.12",
+    "youtube-transcript": "^1.3.0"
   }
 }

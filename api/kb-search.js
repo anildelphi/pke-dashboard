@@ -1,5 +1,4 @@
-const SUPABASE_URL = "https://kzyubvtsvrwwvmagppho.supabase.co";
-const SUPABASE_KEY = "sb_publishable_k0UKHKu-84br_grFLjOfVQ_w9EjA2kg";
+import { supaFetch } from "./_lib/supabase.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -133,15 +132,4 @@ async function searchByText(query) {
   const content = (contentResults || []).map(i => ({ ...i, source_table: "content", takeaways: i.key_takeaways }));
   const podcasts = (podcastResults || []).map(i => ({ ...i, source_table: "podcast", source_type: "podcast", url: i.youtube_url || i.url }));
   return [...content, ...podcasts];
-}
-
-async function supaFetch(path, opts = {}) {
-  const { headers: extraHeaders, ...restOpts } = opts;
-  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
-    ...restOpts,
-    headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", ...extraHeaders },
-  });
-  if (!res.ok) throw new Error("Supabase error: " + res.status);
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
 }

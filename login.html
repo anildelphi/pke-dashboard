@@ -66,6 +66,10 @@
     button:hover {
       background: #2563eb;
     }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
     .error {
       color: #f87171;
       font-size: 13px;
@@ -79,34 +83,51 @@
 </head>
 <body>
   <div class="login-box">
-    <h1>🧠 PKE</h1>
+    <h1>&#129504; PKE</h1>
     <div class="subtitle">Personal Knowledge Engine</div>
     <form id="loginForm">
       <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" autofocus />
-      <button type="submit">Unlock</button>
+      <button type="submit" id="submitBtn">Unlock</button>
     </form>
     <div class="error" id="error">Incorrect password</div>
   </div>
   <script>
-    const CORRECT_PASSWORD = '9Ldoms0zwH627mfv';
-    const AUTH_KEY = 'pke_authenticated';
-    
-    // If already authenticated, redirect to dashboard
-    if (localStorage.getItem(AUTH_KEY) === 'true') {
-      window.location.href = '/';
-    }
-    
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    // Check if already authenticated via server-side session
+    fetch('/api/auth').then(r => {
+      if (r.ok) window.location.href = '/';
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const password = document.getElementById('password').value;
-      
-      if (password === CORRECT_PASSWORD) {
-        localStorage.setItem(AUTH_KEY, 'true');
-        window.location.href = '/';
-      } else {
-        document.getElementById('error').classList.add('show');
-        document.getElementById('password').value = '';
-        document.getElementById('password').focus();
+      const btn = document.getElementById('submitBtn');
+      const errorEl = document.getElementById('error');
+      const passwordInput = document.getElementById('password');
+      const password = passwordInput.value;
+
+      btn.disabled = true;
+      btn.textContent = 'Unlocking...';
+      errorEl.classList.remove('show');
+
+      try {
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          errorEl.classList.add('show');
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+      } catch {
+        errorEl.textContent = 'Connection error';
+        errorEl.classList.add('show');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Unlock';
       }
     });
   </script>
