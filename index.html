@@ -131,39 +131,6 @@
       border-left: 2px solid rgba(148,163,184,0.3);
     }
     .card-no-summary { font-size: 12px; color: #475569; font-style: italic; margin-bottom: 14px; }
-    .meeting-notes {
-      font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 10px;
-      background: rgba(255,255,255,0.02); border-radius: 6px; padding: 12px;
-      border-left: 3px solid rgba(251,191,36,0.4); max-height: 400px; overflow-y: auto;
-    }
-    .meeting-notes p { margin-bottom: 6px; }
-    .meeting-notes p:last-child { margin-bottom: 0; }
-    .meeting-notes h3, .meeting-notes h4 { margin: 10px 0 4px 0 !important; }
-    .meeting-todos {
-      background: rgba(239,68,68,0.08); border-radius: 6px; padding: 10px 12px;
-      border-left: 3px solid #ef4444; margin-bottom: 10px;
-    }
-    .meeting-todos h4 { font-size: 10px; color: #ef4444; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 6px 0; font-weight: 600; }
-    .meeting-todos ul { margin: 0; padding-left: 16px; }
-    .meeting-todos li { font-size: 12px; color: #fca5a5; line-height: 1.4; margin: 3px 0; }
-    .meeting-todos li::marker { color: #ef4444; }
-    .meeting-decisions {
-      background: rgba(34,197,94,0.08); border-radius: 6px; padding: 10px 12px;
-      border-left: 3px solid #22c55e; margin-bottom: 10px;
-    }
-    .meeting-decisions h4 { font-size: 10px; color: #22c55e; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 6px 0; font-weight: 600; }
-    .meeting-decisions ul { margin: 0; padding-left: 16px; }
-    .meeting-decisions li { font-size: 12px; color: #86efac; line-height: 1.4; margin: 3px 0; }
-    .meeting-attendees {
-      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;
-    }
-    .meeting-attendee {
-      background: rgba(96,165,250,0.12); color: #93c5fd; font-size: 10px;
-      padding: 3px 8px; border-radius: 10px; font-family: 'IBM Plex Mono', monospace;
-    }
-    .meeting-section { margin-bottom: 10px; }
-    .meeting-section:last-child { margin-bottom: 0; }
-    .meeting-section-title { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px; font-weight: 600; }
     .card-read-link {
       display: inline-block; font-size: 11px; color: #60a5fa; margin-bottom: 12px;
       text-decoration: none; font-family: 'IBM Plex Mono', monospace;
@@ -337,11 +304,6 @@
       kbDigest: null,
       kbDigestLoading: false,
       kbDigestExpanded: false,
-      // Meetings
-      meetingsSearchQuery: "",
-      meetingsExpandedId: null,
-      actionItemsExpanded: false,
-      selectedMeetingFilters: [],
     };
 
     // Scroll position preservation
@@ -1151,26 +1113,12 @@
     function getFiltered() {
       return state.items.filter(item => {
         if (item.status === "to_try") return false;
-        // Exclude meetings from readings tab
-        if (item.status === "meeting" || (item.tags || []).includes("meeting")) return false;
         const catOk = state.activeCategory === "all" || item.category === state.activeCategory;
         const q = state.searchQuery.toLowerCase();
         const searchOk = !q || (item.title || "").toLowerCase().includes(q)
           || (item.summary || "").toLowerCase().includes(q)
           || (item.tags || []).some(t => t.toLowerCase().includes(q));
         return catOk && searchOk;
-      });
-    }
-
-    function getFilteredMeetings() {
-      return state.items.filter(item => {
-        // Include items with meeting status OR meeting tag
-        if (item.status !== "meeting" && !(item.tags || []).includes("meeting")) return false;
-        const q = state.meetingsSearchQuery.toLowerCase();
-        const searchOk = !q || (item.title || "").toLowerCase().includes(q)
-          || (item.summary || "").toLowerCase().includes(q)
-          || (item.tags || []).some(t => t.toLowerCase().includes(q));
-        return searchOk;
       });
     }
 
@@ -1392,278 +1340,13 @@
       const tabBar = `
         <div class="tab-bar">
           <button class="tab ${state.activeTab === "readings" ? "active" : ""}" data-tab="readings" onclick="switchTab('readings')">Readings</button>
-          <button class="tab ${state.activeTab === "meetings" ? "active" : ""}" data-tab="meetings" onclick="switchTab('meetings')">Meetings</button>
           <button class="tab ${state.activeTab === "totry" ? "active" : ""}" data-tab="totry" onclick="switchTab('totry')">To Try</button>
           <button class="tab ${state.activeTab === "todo" ? "active" : ""}" data-tab="todo" onclick="switchTab('todo')">To Do</button>
           <button class="tab ${state.activeTab === "podcasts" ? "active" : ""}" data-tab="podcasts" onclick="switchTab('podcasts')">Podcasts</button>
           <button class="tab ${state.activeTab === "kb" ? "active" : ""}" data-tab="kb" onclick="switchTab('kb')">Knowledge Base</button>
         </div>`;
 
-      if (state.activeTab === "meetings") {
-        const meetingsFiltered = getFilteredMeetings();
-        
-        // Generate weekly summary
-        const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-        const recentMeetings = meetingsFiltered.filter(m => new Date(m.created_at).getTime() > oneWeekAgo);
-        const allActionItems = [];
-        const meetingSummaries = [];
-        
-        recentMeetings.forEach(m => {
-          const meetingAge = Date.now() - new Date(m.created_at).getTime();
-          const daysOld = meetingAge / (24 * 60 * 60 * 1000);
-          
-          // Collect action items with priority scoring
-          if (m.key_takeaways && Array.isArray(m.key_takeaways)) {
-            m.key_takeaways.forEach(action => {
-              if (action && action.length > 3) {
-                // Priority scoring
-                let priority = 50; // base priority
-                const actionLower = action.toLowerCase();
-                
-                // Urgency keywords boost priority
-                if (/\b(urgent|asap|immediately|today|critical)\b/i.test(action)) priority += 40;
-                if (/\b(this week|tomorrow|deadline|due)\b/i.test(action)) priority += 30;
-                if (/\b(send|email|reach out|contact|follow up|schedule)\b/i.test(action)) priority += 20;
-                if (/\b(review|finalize|confirm|decide)\b/i.test(action)) priority += 15;
-                
-                // Meeting type boosts
-                const titleLower = m.title.toLowerCase();
-                if (/exec|strategy|leadership/i.test(titleLower)) priority += 25;
-                if (/investor|partner|client/i.test(titleLower)) priority += 20;
-                
-                // Recency boost (newer meetings = more urgent)
-                priority += Math.max(0, 30 - (daysOld * 5));
-                
-                allActionItems.push({ meeting: m.title, action: action, priority: priority, daysOld: daysOld });
-              }
-            });
-          }
-          // Collect meeting summaries
-          if (m.summary) {
-            const preview = m.summary.replace(/^###?\s*/gm, '').split('\n')[0].slice(0, 80);
-            meetingSummaries.push({ title: m.title, preview: preview, attendees: m.referenced_people || [] });
-          }
-        });
-        
-        // Sort by priority (highest first)
-        allActionItems.sort((a, b) => b.priority - a.priority);
-        
-        let weeklySummaryHtml = '';
-        if (recentMeetings.length > 0) {
-          weeklySummaryHtml = `
-            <div style="background:linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(168,85,247,0.1) 100%);border-radius:10px;padding:16px;margin-bottom:20px;border:1px solid rgba(139,92,246,0.2)">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                <span style="font-size:16px">📊</span>
-                <span style="font-size:13px;font-weight:600;color:#e2e8f0">This Week</span>
-                <span style="font-size:11px;color:#64748b;margin-left:auto">${recentMeetings.length} meeting${recentMeetings.length !== 1 ? 's' : ''}</span>
-              </div>
-              
-              <div style="margin-bottom:12px">
-                <div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">📅 Recent Meetings ${state.selectedMeetingFilters.length > 0 ? `<span style="color:#818cf8;font-weight:normal;cursor:pointer" onclick="state.selectedMeetingFilters = []; render();">(clear filter)</span>` : '<span style="color:#64748b;font-weight:normal">(click to filter)</span>'}</div>
-                <div style="display:flex;flex-wrap:wrap;gap:6px">
-                  ${meetingSummaries.slice(0, 8).map(m => {
-                    const isSelected = state.selectedMeetingFilters.includes(m.title);
-                    return `<div onclick="if(state.selectedMeetingFilters.includes('${esc(m.title.replace(/'/g, "\\'"))}')) { state.selectedMeetingFilters = state.selectedMeetingFilters.filter(x => x !== '${esc(m.title.replace(/'/g, "\\'"))}'); } else { state.selectedMeetingFilters.push('${esc(m.title.replace(/'/g, "\\'"))}'); } render();" style="background:${isSelected ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.2)'};border:1px solid ${isSelected ? '#818cf8' : 'transparent'};border-radius:4px;padding:5px 10px;font-size:11px;color:${isSelected ? '#c7d2fe' : '#cbd5e1'};cursor:pointer;transition:all 0.15s">${esc(m.title.slice(0, 25))}${m.title.length > 25 ? '...' : ''}</div>`;
-                  }).join('')}
-                </div>
-              </div>
-              
-              ${allActionItems.length > 0 ? (() => {
-                const filteredActions = state.selectedMeetingFilters.length > 0 
-                  ? allActionItems.filter(item => state.selectedMeetingFilters.includes(item.meeting))
-                  : allActionItems;
-                const displayActions = state.actionItemsExpanded ? filteredActions : filteredActions.slice(0, 10);
-                return `
-                <div style="margin-bottom:12px">
-                  <div style="font-size:10px;color:#f87171;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;font-weight:600">🔴 Action Items (${filteredActions.length}${state.selectedMeetingFilters.length > 0 ? ' filtered' : ''}) — sorted by priority</div>
-                  <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:10px">
-                    ${filteredActions.length === 0 ? '<div style="font-size:11px;color:#64748b;text-align:center">No action items for selected meetings</div>' : displayActions.map((item, idx) => `
-                      <div style="display:flex;gap:8px;margin-bottom:4px;font-size:11px;align-items:flex-start">
-                        <span style="color:${item.priority >= 80 ? '#ef4444' : item.priority >= 60 ? '#f97316' : '#fca5a5'};font-size:10px">${item.priority >= 80 ? '🔥' : item.priority >= 60 ? '⚡' : '•'}</span>
-                        <span style="color:#e2e8f0;flex:1">${esc(item.action)}</span>
-                        <span style="color:#64748b;font-size:10px;white-space:nowrap">${esc(item.meeting.slice(0,18))}${item.meeting.length > 18 ? '..' : ''}</span>
-                      </div>
-                    `).join('')}
-                    ${filteredActions.length > 10 ? `
-                      <div onclick="state.actionItemsExpanded = !state.actionItemsExpanded; render();" style="font-size:11px;color:#818cf8;margin-top:8px;cursor:pointer;text-align:center;padding:4px;border-radius:4px;background:rgba(99,102,241,0.1)">
-                        ${state.actionItemsExpanded ? '▲ Show less' : '▼ Show all ' + filteredActions.length + ' action items'}
-                      </div>
-                    ` : ''}
-                  </div>
-                </div>
-              `})() : ''}
-            </div>
-          `;
-        }
-
-        let meetingsContent;
-        if (state.loading && state.items.length === 0) {
-          meetingsContent = `<div class="loading mono"><div class="brain">📅</div><div>loading meetings...</div></div>`;
-        } else if (meetingsFiltered.length === 0) {
-          meetingsContent = '<div style="text-align:center;padding:48px 0;color:#334155;font-size:12px" class="mono">no meetings yet</div>';
-        } else {
-          meetingsContent = `<div class="items">${meetingsFiltered.map(item => {
-            const expanded = state.meetingsExpandedId === item.id;
-            const icon = "📅";
-            const timeStr = timeAgo(item.created_at);
-            const tags = (item.tags || []).filter(t => t !== "meeting").map(t => `<span class="card-tag">${esc(t)}</span>`).join("");
-
-            let detail = "";
-            if (expanded) {
-              // Use summary (AI-formatted) as primary, NOT raw_content (transcript)
-              const meetingSummary = (item.summary && item.summary.trim()) || item.description || "";
-              const hasSummary = meetingSummary.trim().length > 0;
-              
-              // Use key_takeaways from database (AI-extracted action items)
-              let todos = [];
-              if (item.key_takeaways && Array.isArray(item.key_takeaways) && item.key_takeaways.length > 0) {
-                todos = item.key_takeaways.filter(t => t && t.length > 3);
-              }
-              
-              // Use referenced_people from database if available
-              let attendees = [];
-              if (item.referenced_people && Array.isArray(item.referenced_people) && item.referenced_people.length > 0) {
-                attendees = item.referenced_people.filter(p => p && p.length > 1);
-              }
-              
-              // Use quotes/decisions from database
-              let decisions = [];
-              if (item.quotes && Array.isArray(item.quotes) && item.quotes.length > 0) {
-                decisions = item.quotes.filter(q => q && q.length > 3);
-              }
-              
-              // Format the summary with markdown-like structure (compact)
-              function formatMeetingNotes(text) {
-                return esc(text)
-                  // Headers - tighter margins
-                  .replace(/^### (.+)$/gm, '<h4 style="color:#f8fafc;font-size:13px;margin:8px 0 3px 0;font-weight:600">$1</h4>')
-                  .replace(/^## (.+)$/gm, '<h3 style="color:#f8fafc;font-size:14px;margin:10px 0 4px 0;font-weight:600">$1</h3>')
-                  // Bold
-                  .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#f8fafc">$1</strong>')
-                  // Bullet points with indentation - tighter
-                  .replace(/^(\s*)[-•*]\s+(.+)$/gm, (match, indent, content) => {
-                    const level = Math.floor((indent || '').length / 2);
-                    const padding = 12 + (level * 12);
-                    const marker = level > 0 ? '◦' : '•';
-                    const markerColor = level > 0 ? '#475569' : '#64748b';
-                    return `<div style="padding-left:${padding}px;margin:2px 0;position:relative"><span style="position:absolute;left:${padding-12}px;color:${markerColor}">${marker}</span>${content}</div>`;
-                  })
-                  // Paragraphs - tighter
-                  .replace(/\n\n+/g, '</p><p style="margin:6px 0">')
-                  .replace(/\n/g, '<br>')
-                  .replace(/^/, '<p style="margin:4px 0">').replace(/$/, '</p>');
-              }
-              
-              const formattedSummary = hasSummary ? formatMeetingNotes(meetingSummary) : '';
-              
-              detail = `
-                <div class="card-detail" onclick="event.stopPropagation()">
-                  ${attendees.length > 0 ? `
-                    <div class="meeting-section">
-                      <div class="meeting-section-title">👥 Attendees</div>
-                      <div class="meeting-attendees">
-                        ${attendees.map(a => `<span class="meeting-attendee">${esc(a)}</span>`).join('')}
-                      </div>
-                    </div>
-                  ` : ''}
-                  
-                  ${todos.length > 0 ? `
-                    <div class="meeting-todos">
-                      <h4>🔴 Action Items (${todos.length})</h4>
-                      <ul>
-                        ${todos.slice(0, 15).map(t => `<li>${esc(t)}</li>`).join('')}
-                      </ul>
-                    </div>
-                  ` : ''}
-                  
-                  ${decisions.length > 0 ? `
-                    <div class="meeting-decisions">
-                      <h4>✅ Key Decisions</h4>
-                      <ul>
-                        ${decisions.slice(0, 8).map(d => `<li>${esc(d)}</li>`).join('')}
-                      </ul>
-                    </div>
-                  ` : ''}
-                  
-                  ${hasSummary ? `
-                    <div class="meeting-section">
-                      <div class="meeting-section-title">📋 Summary</div>
-                      <div class="meeting-notes">${formattedSummary}</div>
-                    </div>
-                  ` : '<div class="card-no-summary">No summary available yet</div>'}
-                  
-                  ${item.url ? `<a class="card-read-link mono" href="${item.url}" target="_blank" rel="noopener">↗ Open in Browser</a>` : ""}
-                  <div class="card-actions">
-                    <button class="delete-btn mono" onclick="deleteItem('${item.id}')">🗑 delete</button>
-                  </div>
-                </div>`;
-            }
-
-            // Generate preview: first 1-2 sentences from summary
-            let preview = '';
-            if (item.summary && !expanded) {
-              // Extract first meaningful lines (skip headers)
-              const lines = item.summary.split('\n').filter(l => l.trim() && !l.trim().startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '').trim());
-              const previewText = lines.slice(0, 3).join(' • ');
-              if (previewText.length > 0) {
-                preview = previewText.length > 200 ? previewText.slice(0, 200) + '...' : previewText;
-              }
-            }
-            
-            // Get action item count for this meeting
-            const actionCount = (item.key_takeaways || []).filter(t => t && t.length > 3).length;
-            const attendeeCount = (item.referenced_people || []).filter(p => p && p.length > 1).length;
-
-            return `
-              <div class="card" onclick="state.meetingsExpandedId = state.meetingsExpandedId === '${item.id}' ? null : '${item.id}'; render();">
-                <div class="card-top">
-                  <span class="card-icon">${icon}</span>
-                  <div class="card-content">
-                    <div class="card-title ${expanded ? 'expanded' : ''}">${item.url ? `<a href="${item.url}" target="_blank" onclick="event.stopPropagation()">${esc(item.title || "Untitled")}</a>` : esc(item.title || "Untitled")}</div>
-                    <div class="card-meta">
-                      <span class="card-cat" style="color:#fbbf24;background:rgba(251,191,36,0.12)">meeting</span>
-                      <span class="card-time mono">${timeStr}</span>
-                      ${attendeeCount > 0 ? `<span style="color:#64748b;font-size:10px">👥 ${attendeeCount}</span>` : ''}
-                      ${actionCount > 0 ? `<span style="color:#f87171;font-size:10px">📌 ${actionCount}</span>` : ''}
-                    </div>
-                    ${tags ? `<div class="card-tags">${tags}</div>` : ""}
-                    ${preview ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4">${esc(preview)}</div>` : ''}
-                  </div>
-                </div>
-                ${detail}
-              </div>`;
-          }).join("")}</div>`;
-        }
-
-        document.getElementById("app").innerHTML = `
-          ${tabBar}
-          <div class="header">
-            <div class="header-left">
-              <span style="font-size:28px">📅</span>
-              <div>
-                <h1 class="mono">Meetings</h1>
-                <p class="sub mono">Meeting Notes from Granola</p>
-              </div>
-            </div>
-            <div class="header-right">
-              <div class="search-wrap">
-                <span class="icon">⌕</span>
-                <input type="text" placeholder="search..." value="${esc(state.meetingsSearchQuery)}" oninput="state.meetingsSearchQuery=this.value;render()" />
-              </div>
-              <button class="btn" onclick="fetchItems()">↻</button>
-            </div>
-          </div>
-
-          <div class="stats">
-            <div class="mono"><span class="stat-val" style="color:#e2e8f0">${meetingsFiltered.length}</span><span class="stat-label">meetings</span></div>
-            <div class="mono"><span class="stat-val" style="color:#fbbf24">${meetingsFiltered.filter(i => (Date.now() - new Date(i.created_at)) < 7 * 86400000).length}</span><span class="stat-label">this week</span></div>
-          </div>
-
-          ${state.error ? `<div class="error-bar mono">⚠ ${esc(state.error)}<button onclick="fetchItems()">retry</button></div>` : ""}
-          ${weeklySummaryHtml}
-          ${meetingsContent}
-        `;
-      } else if (state.activeTab === "totry") {
+      if (state.activeTab === "totry") {
         const tryFiltered = getFilteredToTry();
         const tryUsedCats = new Set(state.items.filter(i => i.status === "to_try").map(i => i.category));
 
@@ -2001,7 +1684,7 @@
           <div class="cat-filters">
             ${CATEGORIES.filter(c => c.key === "all" || usedCats.has(c.key)).map(c => `
               <button class="cat-btn ${state.activeCategory === c.key ? "active" : ""}" style="${state.activeCategory === c.key ? `color:${c.color};background:${c.color}18;border-color:${c.color}40` : ""}" onclick="state.activeCategory='${c.key}';render()">
-                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key && i.status !== "to_try" && i.status !== "meeting" && !(i.tags || []).includes("meeting")).length}</span>` : ""}
+                ${c.label}${c.key !== "all" ? `<span class="count">${state.items.filter(i => i.category === c.key && i.status !== "to_try").length}</span>` : ""}
               </button>
             `).join("")}
           </div>
