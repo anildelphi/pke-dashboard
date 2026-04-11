@@ -972,7 +972,7 @@
         detail = `
           <div class="card-detail" onclick="event.stopPropagation()">
             ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary yet <button class="move-btn mono" style="color:#fbbf24;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);margin-left:8px;font-size:11px" onclick="event.stopPropagation();enrichKBItem(state.kbItems.find(i=>i.id==='${item.id}'))">✦ Enrich</button></p>`}
-            ${item.url ? `<a class="card-read-link mono" href="${esc(item.url)}" target="_blank" rel="noopener">↗ Open</a>` : ""}
+            ${item.url ? (() => { const u = item.url; const isPDF = /\.pdf(\?|$)/i.test(u) || u.includes('/storage/v1/object/public/pdfs/'); return isPDF ? `<a class="card-read-link mono" href="${esc(u)}" target="_blank" rel="noopener">📄 View PDF</a>` : `<a class="card-read-link mono" href="${esc(u)}" target="_blank" rel="noopener">↗ Open</a>`; })() : ""}
             ${quotesHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Key Quotes</div>${quotesHtml}</div>` : ""}
             ${takeawaysHtml ? `<div style="margin-bottom:10px"><div class="card-section-label mono">Takeaways</div>${takeawaysHtml}</div>` : ""}
             ${podcastExtra}
@@ -1180,7 +1180,7 @@
         detail = `
           <div class="card-detail" onclick="event.stopPropagation()">
             ${item.summary ? `<p class="card-summary">${esc(item.summary)}</p>` : `<p class="card-no-summary">No summary available yet.</p>`}
-            ${item.url ? `<a class="card-read-link mono" href="${esc(item.url)}" target="_blank" rel="noopener">↗ Read original</a>` : ""}
+            ${item.url ? (() => { const u = item.url; const isPDF = /\.pdf(\?|$)/i.test(u) || u.includes('/storage/v1/object/public/pdfs/'); return isPDF ? `<a class="card-read-link mono" href="${esc(u)}" target="_blank" rel="noopener">📄 View PDF</a>` : `<a class="card-read-link mono" href="${esc(u)}" target="_blank" rel="noopener">↗ Read original</a>`; })() : ""}
             ${takeaways}
             ${quotes}
             <div class="card-actions">
